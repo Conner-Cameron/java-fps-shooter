@@ -1,5 +1,6 @@
 package com.conner.fps.engine;
 
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.lwjgl.system.MemoryStack;
 
@@ -70,6 +71,26 @@ public class Shader {
 
     public void setVec3(String name, float x, float y, float z) {
         glUniform3f(glGetUniformLocation(programId, name), x, y, z);
+    }
+
+    public void setVec2(String name, float x, float y) {
+        glUniform2f(glGetUniformLocation(programId, name), x, y);
+    }
+
+    public void setFloat(String name, float value) {
+        glUniform1f(glGetUniformLocation(programId, name), value);
+    }
+
+    public void setInt(String name, int value) {
+        glUniform1i(glGetUniformLocation(programId, name), value);
+    }
+
+    public void setMat3(String name, Matrix3f matrix) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            FloatBuffer buffer = stack.mallocFloat(9);
+            matrix.get(buffer);
+            glUniformMatrix3fv(glGetUniformLocation(programId, name), false, buffer);
+        }
     }
 
     public void cleanup() {
