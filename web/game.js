@@ -36,14 +36,144 @@
   // ================================================================
   const targets = []; // local practice bots -- shootable, respawn on hit, not networked
 
-  function addBox(position, size, color) {
+  function addBox(position, size, color, texture, tileSize) {
     const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
-    const mat = new THREE.MeshLambertMaterial({ color });
+    const matOptions = { color };
+    if (texture) {
+      const t = Math.max(tileSize || 2.5, 0.01);
+      matOptions.map = tiledClone(texture, Math.max(size[0] / t, 0.5), Math.max(size[1] / t, 0.5));
+    }
+    const mat = new THREE.MeshLambertMaterial(matOptions);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(position[0], position[1], position[2]);
     scene.add(mesh);
     return mesh;
   }
+
+  // ================================================================
+  // Procedural textures (canvas-painted, no image assets) shared across
+  // walls, targets, terrain, player models, and the gun -- each is
+  // generated once and reused via tiledClone() with per-object repeat
+  // counts, mirroring the desktop build's "one texture, many tints"
+  // approach.
+  // ================================================================
+  function makeCanvasTexture(size, draw) {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    draw(canvas.getContext("2d"), size);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+  }
+
+  function tiledClone(baseTexture, repeatX, repeatY) {
+    const tex = baseTexture.clone();
+    tex.needsUpdate = true;
+    tex.repeat.set(repeatX, repeatY);
+    return tex;
+  }
+
+  function makeMetalTexture() {
+    return makeCanvasTexture(256, (ctx, size) => {
+      ctx.fillStyle = "#aab0bb";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 3000; i++) {
+        const x = Math.random() * size, y = Math.random() * size;
+        const a = Math.random() * 0.06;
+        ctx.fillStyle = Math.random() < 0.5 ? `rgba(0,0,0,${a})` : `rgba(255,255,255,${a})`;
+        ctx.fillRect(x, y, 2, 2);
+      }
+      const tile = size / 4;
+      ctx.strokeStyle = "rgba(30,30,35,0.35)";
+      ctx.lineWidth = 2;
+      for (let x = 0; x <= size; x += tile) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, size); ctx.stroke();
+      }
+      for (let y = 0; y <= size; y += tile) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(230,230,235,0.9)";
+      for (let x = 0; x <= size; x += tile) {
+        for (let y = 0; y <= size; y += tile) {
+          ctx.beginPath(); ctx.arc(x + 6, y + 6, 2.5, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(x + tile - 6, y + 6, 2.5, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    });
+  }
+
+  function makeRockTexture() {
+    return makeCanvasTexture(256, (ctx, size) => {
+      ctx.fillStyle = "#9a9a92";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 3500; i++) {
+        const x = Math.random() * size, y = Math.random() * size;
+        const a = Math.random() * 0.18;
+        ctx.fillStyle = Math.random() < 0.5 ? `rgba(35,32,28,${a})` : `rgba(215,210,198,${a})`;
+        const r = 1 + Math.random() * 3;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.strokeStyle = "rgba(30,28,24,0.35)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 24; i++) {
+        const x = Math.random() * size, y = Math.random() * size;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + (Math.random() - 0.5) * 50, y + (Math.random() - 0.5) * 50);
+        ctx.stroke();
+      }
+    });
+  }
+
+  function makeBarkTexture() {
+    return makeCanvasTexture(128, (ctx, size) => {
+      ctx.fillStyle = "#4a3020";
+      ctx.fillRect(0, 0, size, size);
+      for (let x = 0; x < size; x += 3) {
+        const shade = Math.random() * 35;
+        ctx.fillStyle = `rgba(${40 + shade},${24 + shade * 0.6},${12 + shade * 0.3},${0.35 + Math.random() * 0.35})`;
+        ctx.fillRect(x, 0, 2, size);
+      }
+    });
+  }
+
+  function makeFoliageTexture() {
+    return makeCanvasTexture(128, (ctx, size) => {
+      ctx.fillStyle = "#356b35";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 1200; i++) {
+        const x = Math.random() * size, y = Math.random() * size;
+        const a = Math.random() * 0.35;
+        ctx.fillStyle = Math.random() < 0.5 ? `rgba(15,45,15,${a})` : `rgba(95,155,75,${a})`;
+        ctx.fillRect(x, y, 3, 3);
+      }
+    });
+  }
+
+  function makeHazardTexture() {
+    return makeCanvasTexture(128, (ctx, size) => {
+      ctx.fillStyle = "#c81e1e";
+      ctx.fillRect(0, 0, size, size);
+      ctx.save();
+      ctx.translate(size / 2, size / 2);
+      ctx.rotate(Math.PI / 4);
+      ctx.translate(-size, -size);
+      ctx.fillStyle = "#1a1a1a";
+      const stripeW = size / 5;
+      for (let x = 0; x < size * 3; x += stripeW * 2) {
+        ctx.fillRect(x, 0, stripeW, size * 2);
+      }
+      ctx.restore();
+    });
+  }
+
+  const metalTexture = makeMetalTexture();
+  const rockTexture = makeRockTexture();
+  const barkTexture = makeBarkTexture();
+  const foliageTexture = makeFoliageTexture();
+  const hazardTexture = makeHazardTexture();
 
   // ---- Sky dome: vertical gradient instead of a single flat color ----
   function addSkyDome() {
@@ -125,15 +255,14 @@
   }
   addGround();
 
-  addBox([-6, 1.5, -5], [2, 3, 2], 0x80808c);
-  addBox([6, 1.5, -8], [2, 3, 2], 0x80808c);
-  addBox([0, 1.5, -14], [8, 3, 1], 0x737380);
-  addBox([-11, 1.5, -18], [2, 3, 2], 0x80808c);
-  addBox([11, 1.5, -18], [2, 3, 2], 0x80808c);
+  addBox([-6, 1.5, -5], [2, 3, 2], 0x9aa0ab, metalTexture);
+  addBox([6, 1.5, -8], [2, 3, 2], 0x9aa0ab, metalTexture);
+  addBox([0, 1.5, -14], [8, 3, 1], 0x8b909c, metalTexture);
+  addBox([-11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture);
+  addBox([11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture);
 
   // ---- Distant mountain ring -- breaks the "floating in a void" look ----
   function addMountains() {
-    const mat = new THREE.MeshLambertMaterial({ color: 0x5b6a86 });
     const count = 16;
     const radius = 78;
     for (let i = 0; i < count; i++) {
@@ -144,6 +273,10 @@
       const h = 20 + ((i * 53) % 20);
       const r = 10 + ((i * 29) % 8);
       const sides = 5 + (i % 3);
+      const mat = new THREE.MeshLambertMaterial({
+        color: 0x5b6a86,
+        map: tiledClone(rockTexture, r / 3, h / 3)
+      });
       const mesh = new THREE.Mesh(new THREE.ConeGeometry(r, h, sides), mat);
       mesh.position.set(x, h / 2 - 2, z);
       mesh.rotation.y = i * 0.7;
@@ -157,13 +290,13 @@
     const group = new THREE.Group();
     const trunk = new THREE.Mesh(
       new THREE.CylinderGeometry(0.15, 0.22, 1.6, 6),
-      new THREE.MeshLambertMaterial({ color: 0x5b3a29 })
+      new THREE.MeshLambertMaterial({ color: 0xffffff, map: tiledClone(barkTexture, 1, 1) })
     );
     trunk.position.y = 0.8;
     group.add(trunk);
     const leaves = new THREE.Mesh(
       new THREE.ConeGeometry(1.1, 2.4, 7),
-      new THREE.MeshLambertMaterial({ color: 0x3f7d3f })
+      new THREE.MeshLambertMaterial({ color: 0xffffff, map: tiledClone(foliageTexture, 1, 1) })
     );
     leaves.position.y = 2.4;
     group.add(leaves);
@@ -174,7 +307,7 @@
   function addRock(x, z, scale) {
     const rock = new THREE.Mesh(
       new THREE.DodecahedronGeometry(0.6 * scale, 0),
-      new THREE.MeshLambertMaterial({ color: 0x8a8a86 })
+      new THREE.MeshLambertMaterial({ color: 0x8a8a86, map: tiledClone(rockTexture, 1, 1) })
     );
     rock.position.set(x, 0.3 * scale, z);
     rock.rotation.set(scale * 1.3, scale * 2.1, 0);
@@ -199,7 +332,7 @@
   }
 
   for (let i = 0; i < TARGET_COUNT; i++) {
-    const mesh = addBox(randomArenaPosition(1 + Math.random() * 3.5), [TARGET_SIZE, TARGET_SIZE, TARGET_SIZE], 0xe62626);
+    const mesh = addBox(randomArenaPosition(1 + Math.random() * 3.5), [TARGET_SIZE, TARGET_SIZE, TARGET_SIZE], 0xffffff, hazardTexture, 1.2);
     targets.push({ mesh });
   }
 
@@ -208,8 +341,8 @@
   // ================================================================
   function createPlayerModel() {
     const group = new THREE.Group();
-    const armorMat = new THREE.MeshLambertMaterial({ color: 0x8fa0b3 });
-    const trimMat = new THREE.MeshLambertMaterial({ color: 0x1e1f22 });
+    const armorMat = new THREE.MeshLambertMaterial({ color: 0x8fa0b3, map: tiledClone(metalTexture, 1, 1) });
+    const trimMat = new THREE.MeshLambertMaterial({ color: 0x1e1f22, map: tiledClone(metalTexture, 1, 1) });
     const headMat = new THREE.MeshLambertMaterial({ color: 0xe82626 });
 
     function part(mat, x, y, z, sx, sy, sz, parent) {
@@ -263,8 +396,8 @@
   // ================================================================
   function createGunModel() {
     const group = new THREE.Group();
-    const metalMat = new THREE.MeshLambertMaterial({ color: 0x6b6f78 });
-    const accentMat = new THREE.MeshLambertMaterial({ color: 0x17181a });
+    const metalMat = new THREE.MeshLambertMaterial({ color: 0x6b6f78, map: tiledClone(metalTexture, 1, 1) });
+    const accentMat = new THREE.MeshLambertMaterial({ color: 0x17181a, map: tiledClone(metalTexture, 1, 1) });
     const flashMat = new THREE.MeshBasicMaterial({ color: 0xfff2b0 });
 
     function part(mat, x, y, z, sx, sy, sz) {
