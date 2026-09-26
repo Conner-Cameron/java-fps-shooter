@@ -459,7 +459,7 @@
       const forward = getForward();
       const flatForward = new THREE.Vector3(forward.x, 0, forward.z);
       if (flatForward.lengthSq() > 0.0001) flatForward.normalize();
-      const right = new THREE.Vector3().crossVectors(flatForward, new THREE.Vector3(0, 1, 0)).negate();
+      const right = new THREE.Vector3().crossVectors(flatForward, new THREE.Vector3(0, 1, 0));
 
       const velocity = MOVE_SPEED * dt;
       if (keys["KeyW"]) camera.position.addScaledVector(flatForward, velocity);
