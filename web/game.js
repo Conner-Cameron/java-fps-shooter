@@ -301,7 +301,7 @@
 
   document.addEventListener("mousemove", (e) => {
     if (!isLocked()) return;
-    yaw -= e.movementX * MOUSE_SENSITIVITY;
+    yaw += e.movementX * MOUSE_SENSITIVITY;
     pitch -= e.movementY * MOUSE_SENSITIVITY;
     const limit = Math.PI / 2 - 0.01;
     pitch = Math.max(-limit, Math.min(limit, pitch));
