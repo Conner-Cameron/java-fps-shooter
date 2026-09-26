@@ -15,6 +15,7 @@
 
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
   camera.position.set(0, 1.7, 8);
+  scene.add(camera); // needed so the view-model gun (parented to the camera below) gets rendered
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const sun = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -112,6 +113,78 @@
     let diff = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
     if (diff < -Math.PI) diff += Math.PI * 2;
     return a + diff * t;
+  }
+
+  // ================================================================
+  // First-person weapon view-model (parented to the camera, so it stays
+  // anchored to the screen exactly like a real FPS gun) -- mirrors the
+  // desktop build's GunModel: idle sway, a walk bob, a recoil kick and a
+  // muzzle flash on firing. Without this the local player was just a bare
+  // floating camera with no sense of a body/weapon in their own view.
+  // ================================================================
+  function createGunModel() {
+    const group = new THREE.Group();
+    const metalMat = new THREE.MeshLambertMaterial({ color: 0x6b6f78 });
+    const accentMat = new THREE.MeshLambertMaterial({ color: 0x17181a });
+    const flashMat = new THREE.MeshBasicMaterial({ color: 0xfff2b0 });
+
+    function part(mat, x, y, z, sx, sy, sz) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+      mesh.position.set(x, y, z);
+      group.add(mesh);
+      return mesh;
+    }
+
+    part(metalMat, 0, -0.02, 0.1, 0.12, 0.12, 0.55);   // body/receiver
+    part(metalMat, 0, 0.02, -0.35, 0.05, 0.05, 0.35);  // barrel
+    part(accentMat, 0, -0.14, 0.2, 0.08, 0.18, 0.1);   // grip
+    part(accentMat, 0, -0.1, 0.02, 0.06, 0.14, 0.22);  // magazine
+    part(metalMat, 0, 0.02, 0.42, 0.09, 0.1, 0.22);    // stock
+
+    const flash = part(flashMat, 0, 0.02, -0.56, 0.16, 0.16, 0.16);
+    flash.visible = false;
+    group.userData.flash = flash;
+    return group;
+  }
+
+  const GUN_BASE_POS = { x: 0.32, y: -0.32, z: -0.6 };
+  const GUN_RECOIL_DURATION = 0.18;
+  const GUN_MUZZLE_FLASH_DURATION = 0.05;
+
+  const gunGroup = createGunModel();
+  gunGroup.position.set(GUN_BASE_POS.x, GUN_BASE_POS.y, GUN_BASE_POS.z);
+  gunGroup.rotation.y = THREE.MathUtils.degToRad(8);
+  camera.add(gunGroup);
+
+  let gunIdleTime = 0;
+  let gunWalkTime = 0;
+  let gunMovingFactor = 0;
+  let gunRecoilTimer = 0;
+
+  function triggerGunFire() {
+    gunRecoilTimer = GUN_RECOIL_DURATION;
+  }
+
+  function updateGunModel(dt, moving) {
+    gunIdleTime += dt;
+    gunMovingFactor += ((moving ? 1 : 0) - gunMovingFactor) * Math.min(1, dt * 8);
+    if (moving) gunWalkTime += dt * 9;
+    if (gunRecoilTimer > 0) gunRecoilTimer = Math.max(0, gunRecoilTimer - dt);
+
+    const idleSwayX = Math.sin(gunIdleTime * 0.6) * 0.012;
+    const idleSwayY = Math.sin(gunIdleTime * 1.1) * 0.008;
+    const walkBobX = Math.sin(gunWalkTime) * 0.02 * gunMovingFactor;
+    const walkBobY = Math.abs(Math.sin(gunWalkTime)) * 0.018 * gunMovingFactor;
+    const recoilT = gunRecoilTimer / GUN_RECOIL_DURATION;
+
+    gunGroup.position.set(
+      GUN_BASE_POS.x + idleSwayX + walkBobX,
+      GUN_BASE_POS.y + idleSwayY + walkBobY,
+      GUN_BASE_POS.z + recoilT * 0.12
+    );
+    gunGroup.rotation.y = THREE.MathUtils.degToRad(8);
+    gunGroup.rotation.x = -THREE.MathUtils.degToRad(recoilT * 10);
+    gunGroup.userData.flash.visible = gunRecoilTimer > GUN_RECOIL_DURATION - GUN_MUZZLE_FLASH_DURATION;
   }
 
   // ================================================================
@@ -330,6 +403,8 @@
   let score = 0;
 
   function shoot() {
+    triggerGunFire();
+
     const forward = getForward();
     raycaster.set(camera.position, forward);
 
@@ -455,6 +530,7 @@
     const dt = Math.min((now - lastTime) / 1000, 0.1);
     lastTime = now;
 
+    let moving = false;
     if (isLocked() && !isDead) {
       const forward = getForward();
       const flatForward = new THREE.Vector3(forward.x, 0, forward.z);
@@ -462,6 +538,7 @@
       const right = new THREE.Vector3().crossVectors(flatForward, new THREE.Vector3(0, 1, 0));
 
       const velocity = MOVE_SPEED * dt;
+      moving = keys["KeyW"] || keys["KeyS"] || keys["KeyD"] || keys["KeyA"];
       if (keys["KeyW"]) camera.position.addScaledVector(flatForward, velocity);
       if (keys["KeyS"]) camera.position.addScaledVector(flatForward, -velocity);
       if (keys["KeyD"]) camera.position.addScaledVector(right, velocity);
@@ -476,6 +553,7 @@
       );
     }
 
+    updateGunModel(dt, moving);
     sendStateIfDue(now);
 
     for (const rp of remotePlayers.values()) {
