@@ -1,11 +1,13 @@
 package com.conner.fps;
 
+import com.conner.fps.audio.HitSound;
 import com.conner.fps.engine.Camera;
 import com.conner.fps.engine.Input;
 import com.conner.fps.engine.Shader;
 import com.conner.fps.engine.Window;
 import com.conner.fps.render.CubeMesh;
 import com.conner.fps.render.Crosshair;
+import com.conner.fps.render.HitEffect;
 import com.conner.fps.util.Ray;
 import com.conner.fps.world.Obstacle;
 import com.conner.fps.world.Target;
@@ -28,6 +30,7 @@ public class Game {
     private static final int WINDOW_WIDTH = 1280;
     private static final int WINDOW_HEIGHT = 720;
     private static final int TARGET_COUNT = 6;
+    private static final float HIT_FLASH_DURATION = 0.15f;
 
     private Window window;
     private Camera camera;
@@ -35,12 +38,15 @@ public class Game {
     private Shader crosshairShader;
     private CubeMesh cubeMesh;
     private Crosshair crosshair;
+    private HitSound hitSound;
 
     private final List<Obstacle> obstacles = new ArrayList<>();
     private final List<Target> targets = new ArrayList<>();
+    private final List<HitEffect> hitEffects = new ArrayList<>();
     private final Random random = new Random();
 
     private int score = 0;
+    private float hitFlashTimer = 0f;
     private double lastFrameTime;
 
     public void run() {
@@ -58,6 +64,7 @@ public class Game {
         crosshairShader = new Shader("/shaders/crosshair_vertex.glsl", "/shaders/crosshair_fragment.glsl");
         cubeMesh = new CubeMesh();
         crosshair = new Crosshair();
+        hitSound = new HitSound();
 
         buildWorld();
 
@@ -96,6 +103,7 @@ public class Game {
             lastFrameTime = now;
 
             processInput(deltaTime);
+            update(deltaTime);
             render();
 
             window.swapBuffers();
@@ -140,9 +148,19 @@ public class Game {
 
         if (closestHit != null) {
             score++;
+            hitEffects.add(new HitEffect(closestHit.position, random));
+            hitSound.play();
+            hitFlashTimer = HIT_FLASH_DURATION;
             closestHit.position = randomTargetPosition();
             updateTitle();
         }
+    }
+
+    private void update(float deltaTime) {
+        if (hitFlashTimer > 0f) {
+            hitFlashTimer = Math.max(0f, hitFlashTimer - deltaTime);
+        }
+        hitEffects.removeIf(effect -> !effect.update(deltaTime));
     }
 
     private void render() {
@@ -173,9 +191,30 @@ public class Game {
             cubeMesh.render();
         }
 
+        for (HitEffect effect : hitEffects) {
+            float fade = 1f - effect.progress();
+            sceneShader.setVec3("color", 1f, 0.85f, 0.25f * fade + 0.1f);
+            for (int i = 0; i < HitEffect.PARTICLE_COUNT; i++) {
+                Matrix4f model = new Matrix4f()
+                        .translate(effect.particlePosition(i))
+                        .scale(effect.particleScale());
+                sceneShader.setMat4("model", model);
+                cubeMesh.render();
+            }
+        }
+
         glDisable(GL_DEPTH_TEST);
         crosshairShader.use();
+        if (hitFlashTimer > 0f) {
+            crosshairShader.setVec3("color", 0.25f, 1f, 0.4f);
+        } else {
+            crosshairShader.setVec3("color", 1f, 1f, 1f);
+        }
         crosshair.render();
+        if (hitFlashTimer > 0f) {
+            crosshairShader.setVec3("color", 1f, 0.85f, 0.2f);
+            crosshair.renderHitMarker();
+        }
         glEnable(GL_DEPTH_TEST);
     }
 
@@ -186,6 +225,7 @@ public class Game {
     private void cleanup() {
         cubeMesh.cleanup();
         crosshair.cleanup();
+        hitSound.cleanup();
         sceneShader.cleanup();
         crosshairShader.cleanup();
         window.destroy();
