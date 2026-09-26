@@ -12,9 +12,9 @@ import java.util.Random;
 public class HitEffect {
     public static final int PARTICLE_COUNT = 10;
 
-    private static final float DURATION = 0.35f;
-    private static final float SPREAD_DISTANCE = 2.2f;
-    private static final float START_SIZE = 0.28f;
+    private static final float DURATION = 0.22f;
+    private static final float SPREAD_DISTANCE = 1.1f;
+    private static final float START_SIZE = 0.16f;
 
     private final Vector3f origin;
     private final Vector3f[] directions = new Vector3f[PARTICLE_COUNT];

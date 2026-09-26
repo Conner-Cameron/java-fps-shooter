@@ -37,7 +37,8 @@ public class Game {
     private static final int WINDOW_WIDTH = 1280;
     private static final int WINDOW_HEIGHT = 720;
     private static final int TARGET_COUNT = 6;
-    private static final float HIT_FLASH_DURATION = 0.15f;
+    private static final float HIT_FLASH_DURATION = 0.2f;
+    private static final float HIT_MARKER_PUNCH_TIME = 0.06f;
     private static final float RECOIL_DURATION = 0.18f;
     private static final float TILE_WORLD_SIZE = 2.5f;
 
@@ -273,7 +274,7 @@ public class Game {
         sceneShader.setVec2("uvScale", 1f, 1f);
         for (HitEffect effect : hitEffects) {
             float fade = 1f - effect.progress();
-            sceneShader.setVec3("color", 1f, 0.85f, 0.25f * fade + 0.1f);
+            sceneShader.setVec3("color", 1f, 1f, 0.85f + 0.15f * fade);
             for (int i = 0; i < HitEffect.PARTICLE_COUNT; i++) {
                 Matrix4f model = new Matrix4f()
                         .translate(effect.particlePosition(i))
@@ -294,14 +295,18 @@ public class Game {
 
         glDisable(GL_DEPTH_TEST);
         crosshairShader.use();
-        if (hitFlashTimer > 0f) {
-            crosshairShader.setVec3("color", 0.25f, 1f, 0.4f);
-        } else {
-            crosshairShader.setVec3("color", 1f, 1f, 1f);
-        }
+        // The reticle itself never recolors on a hit -- only the separate X
+        // marker below appears, matching the classic CoD hit-marker feel.
+        crosshairShader.setVec3("color", 1f, 1f, 1f);
+        crosshairShader.setFloat("scale", 1f);
         crosshair.render();
         if (hitFlashTimer > 0f) {
-            crosshairShader.setVec3("color", 1f, 0.85f, 0.2f);
+            // Quick punch-in then settle, rather than a static on/off flash.
+            float punchT = Math.min(1f, (HIT_FLASH_DURATION - hitFlashTimer) / HIT_MARKER_PUNCH_TIME);
+            float punch = 1f - punchT;
+            float markerScale = 1f + 0.5f * punch * punch;
+            crosshairShader.setVec3("color", 1f, 1f, 1f);
+            crosshairShader.setFloat("scale", markerScale);
             crosshair.renderHitMarker();
         }
         glEnable(GL_DEPTH_TEST);
