@@ -10,8 +10,8 @@
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ccec);
-  scene.fog = new THREE.Fog(0x87ccec, 20, 90);
+  scene.background = new THREE.Color(0xb8d4dc);
+  scene.fog = new THREE.Fog(0xb8d4dc, 20, 95);
 
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
   camera.position.set(0, 1.7, 8);
@@ -29,7 +29,10 @@
   });
 
   // ================================================================
-  // World: same arena layout as the desktop version
+  // World: same arena layout as the desktop version, now dressed with a
+  // gradient sky, a textured ground, a distant mountain ring (so the
+  // arena doesn't feel like it's floating in a void), and scattered
+  // trees/rocks for foreground detail.
   // ================================================================
   const targets = []; // local practice bots -- shootable, respawn on hit, not networked
 
@@ -42,12 +45,148 @@
     return mesh;
   }
 
-  addBox([0, -0.5, 0], [60, 1, 60], 0x4d8c4d); // ground
+  // ---- Sky dome: vertical gradient instead of a single flat color ----
+  function addSkyDome() {
+    const geo = new THREE.SphereGeometry(300, 24, 16);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        topColor: { value: new THREE.Color(0x4d76b3) },
+        bottomColor: { value: new THREE.Color(0xb8d4dc) },
+        offset: { value: 20 },
+        exponent: { value: 0.6 }
+      },
+      vertexShader: `
+        varying vec3 vWorldPosition;
+        void main() {
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 topColor;
+        uniform vec3 bottomColor;
+        uniform float offset;
+        uniform float exponent;
+        varying vec3 vWorldPosition;
+        void main() {
+          float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
+          gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+        }
+      `,
+      side: THREE.BackSide,
+      fog: false
+    });
+    scene.add(new THREE.Mesh(geo, mat));
+  }
+  addSkyDome();
+
+  // ---- Procedurally-painted ground texture (no image assets used) ----
+  function makeGroundTexture() {
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = "#4d8c4d";
+    ctx.fillRect(0, 0, size, size);
+
+    for (let i = 0; i < 4000; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const g = 90 + Math.floor(Math.random() * 60);
+      ctx.fillStyle = `rgba(${g - 60}, ${g}, ${g - 60}, 0.5)`;
+      ctx.fillRect(x, y, 2, 2);
+    }
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = 6 + Math.random() * 14;
+      ctx.fillStyle = "rgba(120, 100, 60, 0.25)";
+      ctx.beginPath();
+      ctx.ellipse(x, y, r, r * 0.6, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(20, 20);
+    return texture;
+  }
+
+  function addGround() {
+    const geo = new THREE.BoxGeometry(60, 1, 60);
+    const mat = new THREE.MeshLambertMaterial({ map: makeGroundTexture() });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(0, -0.5, 0);
+    scene.add(mesh);
+  }
+  addGround();
+
   addBox([-6, 1.5, -5], [2, 3, 2], 0x80808c);
   addBox([6, 1.5, -8], [2, 3, 2], 0x80808c);
   addBox([0, 1.5, -14], [8, 3, 1], 0x737380);
   addBox([-11, 1.5, -18], [2, 3, 2], 0x80808c);
   addBox([11, 1.5, -18], [2, 3, 2], 0x80808c);
+
+  // ---- Distant mountain ring -- breaks the "floating in a void" look ----
+  function addMountains() {
+    const mat = new THREE.MeshLambertMaterial({ color: 0x5b6a86 });
+    const count = 16;
+    const radius = 78;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const dist = radius + ((i * 37) % 17) - 8;
+      const x = Math.cos(angle) * dist;
+      const z = Math.sin(angle) * dist;
+      const h = 20 + ((i * 53) % 20);
+      const r = 10 + ((i * 29) % 8);
+      const sides = 5 + (i % 3);
+      const mesh = new THREE.Mesh(new THREE.ConeGeometry(r, h, sides), mat);
+      mesh.position.set(x, h / 2 - 2, z);
+      mesh.rotation.y = i * 0.7;
+      scene.add(mesh);
+    }
+  }
+  addMountains();
+
+  // ---- Scattered trees and rocks for foreground detail ----
+  function addTree(x, z) {
+    const group = new THREE.Group();
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.15, 0.22, 1.6, 6),
+      new THREE.MeshLambertMaterial({ color: 0x5b3a29 })
+    );
+    trunk.position.y = 0.8;
+    group.add(trunk);
+    const leaves = new THREE.Mesh(
+      new THREE.ConeGeometry(1.1, 2.4, 7),
+      new THREE.MeshLambertMaterial({ color: 0x3f7d3f })
+    );
+    leaves.position.y = 2.4;
+    group.add(leaves);
+    group.position.set(x, 0, z);
+    scene.add(group);
+  }
+
+  function addRock(x, z, scale) {
+    const rock = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.6 * scale, 0),
+      new THREE.MeshLambertMaterial({ color: 0x8a8a86 })
+    );
+    rock.position.set(x, 0.3 * scale, z);
+    rock.rotation.set(scale * 1.3, scale * 2.1, 0);
+    scene.add(rock);
+  }
+
+  [[-16, -3], [16, -4], [-14, -10], [14, -11], [-3, -22], [3, -23],
+   [-17, -20], [17, -21], [-8, -26], [8, -27]].forEach(([x, z]) => addTree(x, z));
+
+  [[-4, -2, 1], [4, -3, 0.8], [-9, -12, 1.2], [9, -13, 0.9],
+   [-2, -17, 0.7], [2, -18, 1.1], [-13, -24, 1], [13, -25, 0.85]]
+    .forEach(([x, z, s]) => addRock(x, z, s));
 
   const TARGET_SIZE = 1.2;
   const TARGET_COUNT = 6;
