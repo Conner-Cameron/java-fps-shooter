@@ -45,9 +45,15 @@ public class GameServer {
     // index: 0 = pistol, 1 = rifle, 2 = sniper
     private static final int[] WEAPON_DAMAGE = {20, 34, 100};
     private static final long[] WEAPON_COOLDOWN_MS = {150, 300, 1000};
+    private static final int[] WEAPON_MAG_SIZE = {8, 24, 5};
+    private static final long[] WEAPON_RELOAD_MS = {1000, 1600, 2200};
 
     private static int clampWeapon(int weapon) {
         return Math.max(0, Math.min(WEAPON_DAMAGE.length - 1, weapon));
+    }
+
+    private static int[] fullMagazines() {
+        return new int[]{WEAPON_MAG_SIZE[0], WEAPON_MAG_SIZE[1], WEAPON_MAG_SIZE[2]};
     }
 
     private static final Map<Integer, Player> players = new ConcurrentHashMap<>();
@@ -270,6 +276,9 @@ public class GameServer {
         volatile int hp = MAX_HP;
         volatile int weapon = 1; // default: rifle
         volatile long lastShotTime = 0;
+        volatile int[] ammo = fullMagazines();
+        volatile boolean reloading = false;
+        volatile int reloadingWeapon = -1;
 
         Player(int id, Socket socket) {
             this.id = id;
@@ -377,7 +386,20 @@ public class GameServer {
             case "weapon": {
                 Object idObj = obj.get("id");
                 if (idObj instanceof Number) {
-                    player.weapon = clampWeapon(((Number) idObj).intValue());
+                    int newWeapon = clampWeapon(((Number) idObj).intValue());
+                    // Switching holsters whatever reload was in progress -- the
+                    // weapon being left keeps whatever partial ammo it had; the
+                    // reload does not complete in the background.
+                    player.reloading = false;
+                    player.weapon = newWeapon;
+                    player.sendText(Json.obj("type", "ammo", "weapon", newWeapon, "ammo", player.ammo[newWeapon]));
+                }
+                break;
+            }
+            case "reload": {
+                int weaponIdx = clampWeapon(player.weapon);
+                if (!player.reloading && player.ammo[weaponIdx] < WEAPON_MAG_SIZE[weaponIdx]) {
+                    startReload(player, weaponIdx);
                 }
                 break;
             }
@@ -386,22 +408,51 @@ public class GameServer {
         }
     }
 
+    private static void startReload(Player p, int weaponIdx) {
+        if (p.reloading) return;
+        p.reloading = true;
+        p.reloadingWeapon = weaponIdx;
+        long duration = WEAPON_RELOAD_MS[weaponIdx];
+        p.sendText(Json.obj("type", "reload", "weapon", weaponIdx, "durationMs", duration));
+        scheduler.schedule(() -> {
+            // If the player switched weapons (or something else already
+            // cleared this) before the timer fired, don't resurrect it.
+            if (p.reloading && p.reloadingWeapon == weaponIdx) {
+                p.ammo[weaponIdx] = WEAPON_MAG_SIZE[weaponIdx];
+                p.reloading = false;
+                p.sendText(Json.obj("type", "ammo", "weapon", weaponIdx, "ammo", p.ammo[weaponIdx]));
+            }
+        }, duration, TimeUnit.MILLISECONDS);
+    }
+
     @SuppressWarnings("unchecked")
     private static void handleShoot(Player shooter, Map<String, Object> obj) {
-        if (!shooter.alive) return;
+        if (!shooter.alive || shooter.reloading) return;
+
+        int weaponIdx = clampWeapon(shooter.weapon);
+        if (shooter.ammo[weaponIdx] <= 0) {
+            startReload(shooter, weaponIdx); // out of ammo -- reload automatically
+            return;
+        }
 
         // Fire-rate is enforced here (not just trusted from the client) so a
         // modified client can't just spam "shoot" messages faster than the
         // equipped weapon allows. This gates the attempt itself -- a miss
         // still consumes the cooldown, same as a real gun's fire rate.
         long now = System.currentTimeMillis();
-        int weaponIdx = clampWeapon(shooter.weapon);
         if (now - shooter.lastShotTime < WEAPON_COOLDOWN_MS[weaponIdx]) return;
         shooter.lastShotTime = now;
 
+        shooter.ammo[weaponIdx]--;
+        shooter.sendText(Json.obj("type", "ammo", "weapon", weaponIdx, "ammo", shooter.ammo[weaponIdx]));
+        boolean emptiedMag = shooter.ammo[weaponIdx] <= 0;
+
         List<Object> originList = (List<Object>) obj.get("origin");
         List<Object> dirList = (List<Object>) obj.get("dir");
-        if (originList == null || dirList == null) return;
+        if (originList == null || dirList == null) {
+            if (emptiedMag) startReload(shooter, weaponIdx);
+            return;
+        }
 
         double[] origin = toDoubleArray(originList);
         double[] dir = toDoubleArray(dirList);
@@ -417,7 +468,10 @@ public class GameServer {
             }
         }
 
-        if (closest == null) return; // miss -- cooldown still applies, nothing else to do
+        if (closest == null) { // miss -- cooldown still applies
+            if (emptiedMag) startReload(shooter, weaponIdx);
+            return;
+        }
         Player victim = closest;
 
         int damage = WEAPON_DAMAGE[weaponIdx];
@@ -426,7 +480,10 @@ public class GameServer {
                 "type", "damage", "shooterId", shooter.id, "victimId", victim.id,
                 "damage", damage, "victimHp", victim.hp));
 
-        if (victim.hp > 0) return; // hit landed but didn't kill
+        if (victim.hp > 0) { // hit landed but didn't kill
+            if (emptiedMag) startReload(shooter, weaponIdx);
+            return;
+        }
 
         victim.alive = false;
         shooter.kills++;
@@ -444,12 +501,17 @@ public class GameServer {
             victim.pos = randomSpawn();
             victim.hp = MAX_HP;
             victim.alive = true;
+            victim.reloading = false;
+            victim.ammo = fullMagazines();
             // Broadcast to everyone (not just the victim) as its own "respawn" message
             // rather than a regular "state" update -- other clients snap the avatar to
             // the new spot instead of smoothly interpolating it, so a respawn reads as
             // an instant teleport, not a glide across the map.
             broadcast(Json.obj("type", "respawn", "id", victim.id, "pos", victim.pos, "hp", victim.hp));
+            victim.sendText(Json.obj("type", "ammo", "weapon", clampWeapon(victim.weapon), "ammo", victim.ammo[clampWeapon(victim.weapon)]));
         }, RESPAWN_DELAY_MS, TimeUnit.MILLISECONDS);
+
+        if (emptiedMag) startReload(shooter, weaponIdx); // the killing shot itself also emptied the mag
     }
 
     private static double[] toDoubleArray(List<Object> list) {

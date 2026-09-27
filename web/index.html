@@ -222,6 +222,7 @@
   #startBtn:hover { background: #f2d15c; }
 
   [hidden] { display: none !important; }
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
@@ -240,7 +241,10 @@
 </div>
 <div id="weaponPanel">
   <div>Weapon: <span id="weaponName">Rifle</span> (<span id="weaponDamage">34</span> dmg)</div>
-  <div class="weaponKeys">[1] Pistol &nbsp; [2] Rifle &nbsp; [3] Sniper</div>
+  <div>Ammo: <span id="ammoCount">24</span>/<span id="ammoMax">24</span>
+    <span id="reloadIndicator" class="hidden"> — Reloading…</span>
+  </div>
+  <div class="weaponKeys">[1] Pistol &nbsp; [2] Rifle &nbsp; [3] Sniper &nbsp; [R] Reload</div>
 </div>
 
 <div id="crosshair"></div>

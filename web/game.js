@@ -395,16 +395,28 @@
   // floating camera with no sense of a body/weapon in their own view.
   // ================================================================
   // Weapon stats are duplicated from GameServer.java's WEAPON_DAMAGE /
-  // WEAPON_COOLDOWN_MS for local UI/animation timing -- the server re-checks
-  // both authoritatively, so this copy only affects how the local view feels,
-  // never the actual outcome of a shot.
+  // WEAPON_COOLDOWN_MS / WEAPON_MAG_SIZE / WEAPON_RELOAD_MS for local UI/
+  // animation timing -- the server re-checks all of it authoritatively
+  // (ammo and reload included), so this copy only affects how the local
+  // view feels, never the actual outcome of a shot.
   const WEAPONS = [
-    { name: "Pistol", damage: 20, cooldown: 150 },
-    { name: "Rifle", damage: 34, cooldown: 300 },
-    { name: "Sniper", damage: 100, cooldown: 1000 }
+    { name: "Pistol", damage: 20, cooldown: 150, magSize: 8, reloadMs: 1000 },
+    { name: "Rifle", damage: 34, cooldown: 300, magSize: 24, reloadMs: 1600 },
+    { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200 }
   ];
   let currentWeapon = 1;
   let lastShotTime = 0;
+  let ammo = WEAPONS.map((w) => w.magSize);
+  let reloading = false;
+  let reloadEndTime = 0;
+
+  function requestReload() {
+    if (reloading || ammo[currentWeapon] >= WEAPONS[currentWeapon].magSize) return;
+    reloading = true;
+    reloadEndTime = performance.now() + WEAPONS[currentWeapon].reloadMs;
+    updateAmmoHud();
+    if (connected) ws.send(JSON.stringify({ type: "reload" }));
+  }
 
   function createGunModel(type) {
     const group = new THREE.Group();
@@ -477,7 +489,9 @@
     gunModels[currentWeapon].visible = false;
     currentWeapon = idx;
     gunModels[currentWeapon].visible = true;
+    reloading = false; // switching holsters any in-progress reload, same as the server
     updateWeaponHud();
+    updateAmmoHud();
     if (connected) ws.send(JSON.stringify({ type: "weapon", id: idx }));
   }
 
@@ -608,6 +622,21 @@
         }
         break;
       }
+      case "ammo": {
+        if (typeof msg.weapon === "number" && typeof msg.ammo === "number") {
+          ammo[msg.weapon] = msg.ammo;
+          if (msg.weapon === currentWeapon) updateAmmoHud();
+        }
+        break;
+      }
+      case "reload": {
+        if (typeof msg.weapon === "number" && msg.weapon === currentWeapon) {
+          reloading = true;
+          reloadEndTime = performance.now() + (msg.durationMs || WEAPONS[currentWeapon].reloadMs);
+          updateAmmoHud();
+        }
+        break;
+      }
       case "kill": {
         if (msg.shooterId === myId) {
           myKills = msg.shooterKills;
@@ -627,7 +656,9 @@
       case "respawn": {
         if (msg.id === myId) {
           myHp = msg.hp || MAX_HP;
+          reloading = false;
           updateHealthHud();
+          updateAmmoHud();
           clearLocalDeath(msg.pos);
         } else {
           const rp = remotePlayers.get(msg.id);
@@ -682,6 +713,7 @@
       if (e.code === "Digit1") selectWeapon(0);
       else if (e.code === "Digit2") selectWeapon(1);
       else if (e.code === "Digit3") selectWeapon(2);
+      else if (e.code === "KeyR") requestReload();
     }
   });
   window.addEventListener("keyup", (e) => { keys[e.code] = false; });
@@ -742,9 +774,18 @@
   let score = 0;
 
   function shoot() {
+    if (reloading) return;
+    if (ammo[currentWeapon] <= 0) {
+      requestReload(); // out of ammo -- reload automatically
+      return;
+    }
+
     const now = performance.now();
     if (now - lastShotTime < WEAPONS[currentWeapon].cooldown) return;
     lastShotTime = now;
+
+    ammo[currentWeapon]--;
+    updateAmmoHud();
 
     triggerGunFire();
 
@@ -761,6 +802,8 @@
       scoreEl.textContent = String(score);
       triggerHitFeedback();
     }
+
+    if (ammo[currentWeapon] <= 0) requestReload();
 
     if (connected && !isDead) {
       ws.send(JSON.stringify({
@@ -852,6 +895,9 @@
   const healthBarEl = document.getElementById("healthBar");
   const weaponNameEl = document.getElementById("weaponName");
   const weaponDamageEl = document.getElementById("weaponDamage");
+  const ammoCountEl = document.getElementById("ammoCount");
+  const ammoMaxEl = document.getElementById("ammoMax");
+  const reloadIndicatorEl = document.getElementById("reloadIndicator");
 
   function setStatus(text) {
     statusEl.textContent = text;
@@ -875,6 +921,12 @@
     healthBarEl.style.background = hp > 50 ? "#5ec25e" : hp > 25 ? "#e0b93c" : "#d4433c";
   }
 
+  function updateAmmoHud() {
+    ammoCountEl.textContent = String(Math.max(0, ammo[currentWeapon]));
+    ammoMaxEl.textContent = String(WEAPONS[currentWeapon].magSize);
+    reloadIndicatorEl.classList.toggle("hidden", !reloading);
+  }
+
   function updateWeaponHud() {
     const w = WEAPONS[currentWeapon];
     weaponNameEl.textContent = w.name;
@@ -882,6 +934,7 @@
   }
   updateWeaponHud();
   updateHealthHud();
+  updateAmmoHud();
 
   // ================================================================
   // Game loop
@@ -891,6 +944,14 @@
   function tick(now) {
     const dt = Math.min((now - lastTime) / 1000, 0.1);
     lastTime = now;
+
+    // Local fallback in case the server's "ammo" completion message is lost
+    // or delayed -- keeps the reload timer feeling responsive regardless.
+    if (reloading && now >= reloadEndTime) {
+      reloading = false;
+      ammo[currentWeapon] = WEAPONS[currentWeapon].magSize;
+      updateAmmoHud();
+    }
 
     let moving = false;
     if (isLocked() && !isDead) {
