@@ -1232,6 +1232,25 @@
   const scoreEl = document.getElementById("score");
   let score = 0;
 
+  // Converts an angular spread (degrees, half-angle of the cone) into an
+  // on-screen pixel radius, using the actual camera FOV and viewport
+  // height -- the same relationship a perspective projection uses to map
+  // angles to screen space. This has to match applySpread()'s real math,
+  // or the crosshair is just decoration: a target that visually "fills
+  // the gap" needs to actually have good hit odds, which only holds if
+  // the gap's pixel size is derived from the same angle, not an arbitrary
+  // constant. (Uses BASE_FOV rather than the live camera.fov since the
+  // hip-fire crosshair is only ever shown while not aiming, i.e. at
+  // BASE_FOV; this technically only accounts for vertical FOV, treating
+  // the gap as if uniform in both axes, which is a small approximation
+  // on a non-square/widescreen viewport but far closer to reality than a
+  // flat constant.)
+  function spreadDegreesToPixels(spreadDegrees) {
+    const halfFovRad = THREE.MathUtils.degToRad(BASE_FOV / 2);
+    const spreadRad = THREE.MathUtils.degToRad(spreadDegrees);
+    return (Math.tan(spreadRad) / Math.tan(halfFovRad)) * (window.innerHeight / 2);
+  }
+
   // Perturbs a direction within a random cone (uniform over the cone's
   // area, so hits cluster naturally toward center rather than piling up
   // at the edge) -- the small-angle tangent-plane approximation used here
@@ -1618,8 +1637,11 @@
     // Visualizes the current weapon's hip-fire bloom -- wider gap = less
     // accurate. Only actually visible while not aiming (the crosshair
     // hides instantly otherwise), so this doesn't need to track adsBlend.
-    const crosshairGapPx = 4 + activeWeapon.hipSpread * 4;
-    crosshairEl.style.setProperty("--gap", crosshairGapPx + "px");
+    // spreadDegreesToPixels() is the SAME angle->pixel conversion used by
+    // shot spread itself, so this is an honest picture: a target that
+    // visually fills this gap genuinely has good hit odds, not just a
+    // vaguely-proportional decoration.
+    crosshairEl.style.setProperty("--gap", spreadDegreesToPixels(activeWeapon.hipSpread) + "px");
 
     updateGunModel(dt, moving, adsBlend, sprinting);
     sendStateIfDue(now);
