@@ -63,6 +63,25 @@
     return mesh;
   }
 
+  // Rotated ramps need a precise oriented check, not a loose world-axis
+  // Box3 (see registerRamp below for why). Stored as the ramp's inverse
+  // world matrix + its exact local half-extents, so a query point can be
+  // transformed into the ramp's own local frame and checked exactly,
+  // regardless of which way it's tilted.
+  const rampColliders = [];
+
+  function registerRamp(mesh, width, thickness, length) {
+    collidables.push(mesh);
+    mesh.updateMatrixWorld(true);
+    rampColliders.push({
+      invMatrix: new THREE.Matrix4().copy(mesh.matrixWorld).invert(),
+      halfW: width / 2,
+      halfT: thickness / 2,
+      halfL: length / 2
+    });
+    return mesh;
+  }
+
   function addBox(position, size, color, texture, tileSize) {
     const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
     const matOptions = { color };
@@ -366,6 +385,7 @@
     const lintelHeight = floorHeight - sillHeight - windowHeight;
     const bays = 3, bayWidth = length / bays, mullionWidth = 0.4;
     const windowWidth = bayWidth - mullionWidth;
+    const doorWidth = 2.4, doorHeight = 2.2;
 
     // Floor slabs (including the roof cap) -- what the player stands on.
     for (let f = 0; f <= floors; f++) {
@@ -373,16 +393,28 @@
     }
 
     for (let f = 0; f < floors; f++) {
-      const y = f * floorHeight + floorHeight / 2;
-      // Solid east (back), north, and south walls
+      const floorBaseY = f * floorHeight;
+      const y = floorBaseY + floorHeight / 2;
+      // Solid east (back) and north walls
       registerSolid(addBox([originX + width / 2 - 0.15, y, originZ], [0.3, floorHeight, length], 0xb9b6ac, metalTexture, 2));
       registerSolid(addBox([originX, y, originZ - length / 2 + 0.15], [width, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2));
-      registerSolid(addBox([originX, y, originZ + length / 2 - 0.15], [width, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2));
+
+      // South wall (facing the staircase): a doorway gap instead of one
+      // solid slab, so each floor is actually enterable from the ramp.
+      const southZ = originZ + length / 2 - 0.15;
+      const sideWidth = (width - doorWidth) / 2;
+      if (sideWidth > 0.05) {
+        registerSolid(addBox([originX - width / 2 + sideWidth / 2, y, southZ], [sideWidth, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2));
+        registerSolid(addBox([originX + width / 2 - sideWidth / 2, y, southZ], [sideWidth, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2));
+      }
+      const headerHeight = floorHeight - doorHeight;
+      if (headerHeight > 0.05) {
+        registerSolid(addBox([originX, floorBaseY + doorHeight + headerHeight / 2, southZ], [doorWidth, headerHeight, 0.3], 0xb9b6ac, metalTexture, 2));
+      }
 
       // West wall (facing the arena): sill + lintel run the full length,
       // with open gaps between mullion pillars for the window bays.
       const wx = originX - width / 2 + 0.15;
-      const floorBaseY = f * floorHeight;
       registerSolid(addBox([wx, floorBaseY + sillHeight / 2, originZ], [0.3, sillHeight, length], 0xb9b6ac, metalTexture, 2));
       registerSolid(addBox([wx, floorBaseY + sillHeight + windowHeight + lintelHeight / 2, originZ], [0.3, lintelHeight, length], 0xb9b6ac, metalTexture, 2));
 
@@ -434,37 +466,53 @@
     scene.add(mesh);
     // Deliberately NOT registerSolid(): an inclined mesh's axis-aligned Box3
     // has to span its full rise (loose bounding box around a rotated
-    // shape), so it would overlap the player's collision box at almost any
-    // point while walking up it, blocking movement on the very ramp you're
-    // standing on. Ground detection (collidables) still works correctly
-    // against the mesh's real, sloped top surface via raycasting; it's
-    // only the coarser box-overlap check (horizontal/ceiling) that can't
-    // handle a rotated shape, so ramps just skip that part.
-    collidables.push(mesh);
+    // shape), which would block the player from walking along the ramp at
+    // almost any point on it. registerRamp() instead checks collision in
+    // the ramp's own local (unrotated) frame, so it can tell "standing on
+    // this ramp's surface" apart from "a different ramp/level happens to
+    // pass through this same space at head height" -- which a simple
+    // world-axis box couldn't distinguish at all.
+    registerRamp(mesh, width, thickness, length);
     return mesh;
   }
 
+  // One full revolution per floor, starting at the angle that faces the
+  // building's south (doorway) side -- so every time the spiral completes
+  // a revolution, it's back at that same angle, exactly at the next
+  // floor's height, and a short branch can lead straight into that
+  // floor's doorway (see addBuilding's south-wall doorway gaps above).
   function addSpiralRamp(b) {
     const cx = b.originX;
     const cz = b.originZ + b.length / 2 + 5.5; // clear ground south of the building
     const radius = 3.5;
     const rampWidth = 2.5, rampThickness = 0.3;
     const roofY = b.floors * b.floorHeight;
-    const revolutions = 3;
-    const segments = 48;
-    const angleStep = (revolutions * Math.PI * 2) / segments;
-    const riseStep = roofY / segments;
+    const segmentsPerRevolution = 16;
+    const totalSegments = segmentsPerRevolution * b.floors;
+    const angleStep = (Math.PI * 2) / segmentsPerRevolution;
+    const riseStep = roofY / totalSegments;
+    const startAngle = -Math.PI / 2; // faces the building from the start
+    const doorZ = b.originZ + b.length / 2; // building's south face / doorway threshold
 
-    let prev = [cx + radius, 0, cz];
-    for (let i = 1; i <= segments; i++) {
-      const angle = i * angleStep;
-      const next = [cx + radius * Math.cos(angle), i * riseStep, cz + radius * Math.sin(angle)];
-      addRamp(prev, next, rampWidth, rampThickness);
-      prev = next;
+    function pointAt(i) {
+      const angle = startAngle + i * angleStep;
+      return [cx + radius * Math.cos(angle), i * riseStep, cz + radius * Math.sin(angle)];
     }
 
-    // Short flat bridge connecting the top of the spiral to the roof slab.
-    addRamp(prev, [b.originX, roofY, b.originZ + b.length / 2], rampWidth, rampThickness);
+    let prev = pointAt(0);
+    addRamp(prev, [b.originX, 0, doorZ], rampWidth, rampThickness); // ground-floor doorway
+
+    for (let i = 1; i <= totalSegments; i++) {
+      const next = pointAt(i);
+      addRamp(prev, next, rampWidth, rampThickness);
+      prev = next;
+
+      if (i % segmentsPerRevolution === 0) {
+        // Back at the building-facing angle -- branch into that floor's
+        // doorway (or, on the final revolution, onto the open roof).
+        addRamp(next, [b.originX, next[1], doorZ], rampWidth, rampThickness);
+      }
+    }
   }
   addSpiralRamp(building);
 
@@ -981,13 +1029,43 @@
   const STAND_CLEARANCE = 0.05;
   const playerBox = new THREE.Box3();
 
+  // Ramps get their own precise check in each ramp's own local (unrotated)
+  // frame: transform the player's feet/head into that frame, and compare
+  // against the ramp's exact half-extents there. This is what correctly
+  // tells "standing on this ramp's own sloped surface" (local Y at/above
+  // its local top face) apart from "some other loop of the spiral passes
+  // through this same world-space region at the wrong height" (local Y
+  // deep inside or below the slab) -- a loose world-axis box can't make
+  // that distinction at all, which is exactly what let players walk
+  // straight through staircase levels that weren't at their own height.
+  const rampLocalFeet = new THREE.Vector3();
+  const rampLocalHead = new THREE.Vector3();
+  const RAMP_STAND_CLEARANCE = 0.08;
+
+  function collidesWithRamps(x, feetY, headY, z) {
+    for (let i = 0; i < rampColliders.length; i++) {
+      const r = rampColliders[i];
+      rampLocalFeet.set(x, feetY, z).applyMatrix4(r.invMatrix);
+      if (Math.abs(rampLocalFeet.x) > r.halfW + PLAYER_RADIUS) continue;
+      if (Math.abs(rampLocalFeet.z) > r.halfL + PLAYER_RADIUS) continue;
+      if (rampLocalFeet.y >= r.halfT - RAMP_STAND_CLEARANCE) continue; // at/above this ramp's own surface
+
+      rampLocalHead.set(x, headY, z).applyMatrix4(r.invMatrix);
+      if (rampLocalHead.y <= -r.halfT) continue; // entirely below this ramp's underside
+
+      return true; // body intersects this ramp's solid slab at the wrong height
+    }
+    return false;
+  }
+
   function collidesAt(x, feetY, z) {
+    const headY = feetY + PLAYER_HEIGHT;
     playerBox.min.set(x - PLAYER_RADIUS, feetY + STAND_CLEARANCE, z - PLAYER_RADIUS);
-    playerBox.max.set(x + PLAYER_RADIUS, feetY + PLAYER_HEIGHT, z + PLAYER_RADIUS);
+    playerBox.max.set(x + PLAYER_RADIUS, headY, z + PLAYER_RADIUS);
     for (let i = 0; i < solidBoxes.length; i++) {
       if (playerBox.intersectsBox(solidBoxes[i])) return true;
     }
-    return false;
+    return collidesWithRamps(x, feetY, headY, z);
   }
 
   // Is there a solid ceiling between the player's current head height and
