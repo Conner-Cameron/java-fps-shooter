@@ -40,6 +40,8 @@ public class GameServer {
     private static final int KILL_LIMIT = 10;
     private static final long RESPAWN_DELAY_MS = 2000;
     private static final long MATCH_RESET_DELAY_MS = 6000;
+    private static final double MIN_SPAWN_DISTANCE = 12.0; // don't spawn this close to any alive player
+    private static final int SPAWN_ATTEMPTS = 20;
 
     private static final int MAX_HP = 100;
     // index: 0 = pistol, 1 = rifle, 2 = sniper, 3 = SMG (automatic -- client fires it on a timer while held)
@@ -314,9 +316,44 @@ public class GameServer {
     }
 
     private static double[] randomSpawn() {
-        double x = (random.nextDouble() - 0.5) * 34;
-        double z = -2 - random.nextDouble() * 26;
-        return new double[]{x, 1.7, z};
+        return randomSpawn(null);
+    }
+
+    /**
+     * Picks a random spawn point, retrying up to SPAWN_ATTEMPTS times to find
+     * one at least MIN_SPAWN_DISTANCE from every other alive player (dead
+     * players' stale positions don't count -- they're not an active threat).
+     * {@code excludeSelf} is the respawning player themselves, whose own
+     * (pre-respawn) position obviously shouldn't count against them. If no
+     * attempt clears the minimum, falls back to whichever candidate ended up
+     * farthest from the nearest player, rather than an infinite retry loop.
+     */
+    private static double[] randomSpawn(Player excludeSelf) {
+        double[] best = null;
+        double bestMinDist = -1;
+
+        for (int attempt = 0; attempt < SPAWN_ATTEMPTS; attempt++) {
+            double x = (random.nextDouble() - 0.5) * 34;
+            double z = -2 - random.nextDouble() * 26;
+
+            double minDist = Double.MAX_VALUE;
+            for (Player p : players.values()) {
+                if (p == excludeSelf || !p.alive) continue;
+                double dx = p.pos[0] - x;
+                double dz = p.pos[2] - z;
+                double dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist < minDist) minDist = dist;
+            }
+
+            if (minDist >= MIN_SPAWN_DISTANCE) {
+                return new double[]{x, 1.7, z};
+            }
+            if (minDist > bestMinDist) {
+                bestMinDist = minDist;
+                best = new double[]{x, 1.7, z};
+            }
+        }
+        return best != null ? best : new double[]{0, 1.7, -15};
     }
 
     private static void broadcast(String json) {
@@ -498,7 +535,7 @@ public class GameServer {
         }
 
         scheduler.schedule(() -> {
-            victim.pos = randomSpawn();
+            victim.pos = randomSpawn(victim); // excluded defensively; they're also not `alive` yet at this point anyway
             victim.hp = MAX_HP;
             victim.alive = true;
             victim.reloading = false;
