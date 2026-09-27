@@ -1544,7 +1544,16 @@
     // The sniper's circular scope overlay only kicks in once mostly zoomed
     // in -- fully hides the regular crosshair while any weapon is aimed,
     // matching how ADS/iron-sights normally replace the floating reticle.
-    const scopedIn = activeWeapon.scope && adsBlend > 0.85;
+    // !! matters here: activeWeapon.scope is `undefined` (not `false`) for
+    // every weapon except the sniper, so without coercing to a real
+    // boolean, `undefined && ...` short-circuits to `undefined` -- and
+    // passing `undefined` as classList.toggle's second argument is
+    // ambiguous enough (across engines) to behave as "no force given, just
+    // flip the current class" instead of "force it off". That produced
+    // exactly this bug: every non-sniper weapon flickering the class on
+    // and off every frame, while the sniper (a real `true`/`false`) never
+    // hit the ambiguity at all.
+    const scopedIn = !!(activeWeapon.scope && adsBlend > 0.85);
     scopeOverlayEl.classList.toggle("show", scopedIn);
     crosshairEl.classList.toggle("hidden", aiming);
 
