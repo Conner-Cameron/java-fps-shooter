@@ -150,12 +150,17 @@
     inset: 0;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.08s ease-out;
+    /* Deliberately no transition here -- hiding (e.g. on a weapon switch)
+       is instant, so the sniper's vignette can't linger on screen for a
+       fade-out's worth of time after a different gun is already equipped. */
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  #scopeOverlay.show { opacity: 1; }
+  #scopeOverlay.show {
+    opacity: 1;
+    transition: opacity 0.08s ease-out; /* only the show-direction fades in smoothly */
+  }
 
   #scopeVignette {
     position: relative;

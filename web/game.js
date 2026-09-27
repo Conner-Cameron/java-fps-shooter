@@ -748,6 +748,8 @@
     gunModels[currentWeapon].visible = true;
     reloading = false; // switching holsters any in-progress reload, same as the server
     aiming = false; // re-raise and re-aim fresh each time you switch weapons
+    adsBlend = 0; // snap out of any aimed pose/zoom immediately, don't ease out
+    scopeOverlayEl.classList.remove("show"); // force the scope off the instant you switch away
     updateWeaponHud();
     updateAmmoHud();
     if (connected) ws.send(JSON.stringify({ type: "weapon", id: idx }));
