@@ -756,10 +756,14 @@
     if (connected) ws.send(JSON.stringify({ type: "weapon", id: idx }));
   }
 
-  function updateGunModel(dt, moving, adsBlendAmount) {
+  let gunSprintFactor = 0;
+
+  function updateGunModel(dt, moving, adsBlendAmount, sprinting) {
     gunIdleTime += dt;
     gunMovingFactor += ((moving ? 1 : 0) - gunMovingFactor) * Math.min(1, dt * 8);
-    if (moving) gunWalkTime += dt * 9;
+    gunSprintFactor += ((sprinting && moving ? 1 : 0) - gunSprintFactor) * Math.min(1, dt * 8);
+    // Sprinting quickens the cadence on top of the normal walk pace.
+    if (moving) gunWalkTime += dt * (9 + gunSprintFactor * 5);
     if (gunRecoilTimer > 0) gunRecoilTimer = Math.max(0, gunRecoilTimer - dt);
 
     // Idle sway and walk bob fade out while aiming -- steadying your aim
@@ -767,8 +771,14 @@
     const steadiness = 1 - adsBlendAmount;
     const idleSwayX = Math.sin(gunIdleTime * 0.6) * 0.012 * steadiness;
     const idleSwayY = Math.sin(gunIdleTime * 1.1) * 0.008 * steadiness;
-    const walkBobX = Math.sin(gunWalkTime) * 0.02 * gunMovingFactor * steadiness;
-    const walkBobY = Math.abs(Math.sin(gunWalkTime)) * 0.018 * gunMovingFactor * steadiness;
+    // Bob amplitude scales up while sprinting (side-to-side and up-down),
+    // on top of the normal walk bob -- reads as an exaggerated, natural
+    // running motion rather than a separate effect.
+    const bobAmpX = 0.02 + gunSprintFactor * 0.028;
+    const bobAmpY = 0.018 + gunSprintFactor * 0.022;
+    const walkBobX = Math.sin(gunWalkTime) * bobAmpX * gunMovingFactor * steadiness;
+    const walkBobY = Math.abs(Math.sin(gunWalkTime)) * bobAmpY * gunMovingFactor * steadiness;
+    const sprintTiltZ = Math.sin(gunWalkTime) * THREE.MathUtils.degToRad(3) * gunSprintFactor * gunMovingFactor * steadiness;
     const recoilT = gunRecoilTimer / GUN_RECOIL_DURATION;
 
     const basePos = {
@@ -785,6 +795,7 @@
     );
     activeGun.rotation.y = THREE.MathUtils.degToRad(8) * steadiness;
     activeGun.rotation.x = -THREE.MathUtils.degToRad(recoilT * 10);
+    activeGun.rotation.z = sprintTiltZ;
     activeGun.userData.flash.visible = gunRecoilTimer > GUN_RECOIL_DURATION - GUN_MUZZLE_FLASH_DURATION;
 
     // A real scope shows the view through the tube, not the gun's body --
@@ -1012,6 +1023,7 @@
   let pitch = 0;
   const MOUSE_SENSITIVITY = 0.0022;
   const MOVE_SPEED = 6.0;
+  const SPRINT_MULT = 1.6; // Shift held (and not aiming) moves 60% faster
   let started = false;
   let isDead = false;
 
@@ -1445,6 +1457,7 @@
     }
 
     let moving = false;
+    let sprinting = false;
     if (isLocked() && !isDead) {
       const currentFeetY = camera.position.y - EYE_HEIGHT;
       if (collidesAt(camera.position.x, currentFeetY, camera.position.z)) {
@@ -1462,9 +1475,18 @@
       if (flatForward.lengthSq() > 0.0001) flatForward.normalize();
       const right = new THREE.Vector3().crossVectors(flatForward, new THREE.Vector3(0, 1, 0));
 
-      const adsMoveMult = (aiming && WEAPONS[currentWeapon].adsMoveMult != null)
-        ? WEAPONS[currentWeapon].adsMoveMult : 1;
-      const velocity = MOVE_SPEED * adsMoveMult * dt;
+      // Aiming and sprinting are mutually exclusive -- aiming always wins
+      // (you can't sprint while looking down sights, standard FPS
+      // convention), matching how requestReload()/selectWeapon() already
+      // cancel aiming rather than letting states stack unpredictably.
+      sprinting = !aiming && (keys["ShiftLeft"] || keys["ShiftRight"]);
+      let speedMult = 1;
+      if (aiming && WEAPONS[currentWeapon].adsMoveMult != null) {
+        speedMult = WEAPONS[currentWeapon].adsMoveMult;
+      } else if (sprinting) {
+        speedMult = SPRINT_MULT;
+      }
+      const velocity = MOVE_SPEED * speedMult * dt;
       moving = keys["KeyW"] || keys["KeyS"] || keys["KeyD"] || keys["KeyA"];
 
       let moveX = 0, moveZ = 0;
@@ -1564,7 +1586,7 @@
     adsCrosshairEl.classList.toggle("show", showAdsCrosshair);
     crosshairEl.classList.toggle("hidden", aiming);
 
-    updateGunModel(dt, moving, adsBlend);
+    updateGunModel(dt, moving, adsBlend, sprinting);
     sendStateIfDue(now);
 
     for (const rp of remotePlayers.values()) {
