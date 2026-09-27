@@ -673,10 +673,10 @@
     if (connected) ws.send(JSON.stringify({ type: "reload" }));
   }
 
-  function createGunModel(type) {
+  function createGunModel(type, customMats) {
     const group = new THREE.Group();
-    const metalMat = new THREE.MeshLambertMaterial({ color: 0x6b6f78, map: tiledClone(metalTexture, 1, 1) });
-    const accentMat = new THREE.MeshLambertMaterial({ color: 0x17181a, map: tiledClone(metalTexture, 1, 1) });
+    const metalMat = (customMats && customMats.metalMat) || new THREE.MeshLambertMaterial({ color: 0x6b6f78, map: tiledClone(metalTexture, 1, 1) });
+    const accentMat = (customMats && customMats.accentMat) || new THREE.MeshLambertMaterial({ color: 0x17181a, map: tiledClone(metalTexture, 1, 1) });
     const flashMat = new THREE.MeshBasicMaterial({ color: 0xfff2b0 });
 
     function part(mat, x, y, z, sx, sy, sz) {
@@ -732,7 +732,32 @@
   const GUN_RECOIL_DURATION = 0.18;
   const GUN_MUZZLE_FLASH_DURATION = 0.05;
 
-  const gunModels = [createGunModel(0), createGunModel(1), createGunModel(2), createGunModel(3)];
+  // Pistol texture: loaded from a real reference photo (web/assets/
+  // pistol_reference.png) instead of the procedural metal used by the
+  // other three weapons. TextureLoader is async, but gunModels[0] below
+  // is built synchronously, so the canvases start out flat-filled with
+  // a fallback tint and get repainted in place once the image arrives.
+  const pistolMetalTexture = makeCanvasTexture(256, (ctx, size) => {
+    ctx.fillStyle = "#6b6f78";
+    ctx.fillRect(0, 0, size, size);
+  });
+  const pistolAccentTexture = makeCanvasTexture(256, (ctx, size) => {
+    ctx.fillStyle = "#17181a";
+    ctx.fillRect(0, 0, size, size);
+  });
+  const pistolMats = {
+    metalMat: new THREE.MeshLambertMaterial({ color: 0xffffff, map: pistolMetalTexture }),
+    accentMat: new THREE.MeshLambertMaterial({ color: 0xffffff, map: pistolAccentTexture })
+  };
+  new THREE.TextureLoader().load("assets/pistol_reference.png", (loaded) => {
+    const src = loaded.image;
+    pistolMetalTexture.image.getContext("2d").drawImage(src, 550, 90, 300, 300, 0, 0, 256, 256);
+    pistolMetalTexture.needsUpdate = true;
+    pistolAccentTexture.image.getContext("2d").drawImage(src, 740, 350, 180, 180, 0, 0, 256, 256);
+    pistolAccentTexture.needsUpdate = true;
+  });
+
+  const gunModels = [createGunModel(0, pistolMats), createGunModel(1), createGunModel(2), createGunModel(3)];
   gunModels.forEach((g, i) => {
     g.position.set(GUN_BASE_POS.x, GUN_BASE_POS.y, GUN_BASE_POS.z);
     g.rotation.y = THREE.MathUtils.degToRad(8);
