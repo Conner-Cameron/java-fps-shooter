@@ -762,8 +762,15 @@
 
   const pistolMats = makeWeaponPhotoMats("assets/pistol_reference.png", [550, 90, 300, 300], [740, 350, 180, 180]);
   const sniperMats = makeWeaponPhotoMats("assets/sniper_reference.png", [640, 75, 220, 220], [100, 400, 220, 220]);
+  // Rifle and SMG have no reference photos of their own -- skinned from
+  // different crops of the same two sheets (gunmetal + in-hand glove
+  // leather from the pistol photo for the SMG, gunmetal + olive-drab
+  // chassis from the sniper sheet for the rifle) so all four weapons
+  // share one consistent, photo-real look.
+  const smgMats = makeWeaponPhotoMats("assets/pistol_reference.png", [430, 180, 200, 200], [780, 660, 260, 260]);
+  const rifleMats = makeWeaponPhotoMats("assets/sniper_reference.png", [550, 450, 220, 220], [300, 250, 220, 220]);
 
-  const gunModels = [createGunModel(0, pistolMats), createGunModel(1), createGunModel(2, sniperMats), createGunModel(3)];
+  const gunModels = [createGunModel(0, pistolMats), createGunModel(1, rifleMats), createGunModel(2, sniperMats), createGunModel(3, smgMats)];
   gunModels.forEach((g, i) => {
     g.position.set(GUN_BASE_POS.x, GUN_BASE_POS.y, GUN_BASE_POS.z);
     g.rotation.y = THREE.MathUtils.degToRad(8);
