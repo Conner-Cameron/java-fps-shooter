@@ -750,6 +750,7 @@
     aiming = false; // re-raise and re-aim fresh each time you switch weapons
     adsBlend = 0; // snap out of any aimed pose/zoom immediately, don't ease out
     scopeOverlayEl.classList.remove("show"); // force the scope off the instant you switch away
+    adsCrosshairEl.classList.remove("show");
     updateWeaponHud();
     updateAmmoHud();
     if (connected) ws.send(JSON.stringify({ type: "weapon", id: idx }));
@@ -1282,6 +1283,7 @@
   // ================================================================
   const hitMarkerEl = document.getElementById("hitmarker");
   const crosshairEl = document.getElementById("crosshair");
+  const adsCrosshairEl = document.getElementById("adsCrosshair");
   const scopeOverlayEl = document.getElementById("scopeOverlay");
   let hitMarkerTimeout = null;
 
@@ -1555,6 +1557,11 @@
     // hit the ambiguity at all.
     const scopedIn = !!(activeWeapon.scope && adsBlend > 0.85);
     scopeOverlayEl.classList.toggle("show", scopedIn);
+    // Pistol/rifle/SMG get a tighter precision reticle once mostly raised
+    // into their ADS pose; the sniper uses its scope overlay instead, so
+    // it's deliberately excluded here.
+    const showAdsCrosshair = !!(aiming && !activeWeapon.scope && adsBlend > 0.4);
+    adsCrosshairEl.classList.toggle("show", showAdsCrosshair);
     crosshairEl.classList.toggle("hidden", aiming);
 
     updateGunModel(dt, moving, adsBlend);

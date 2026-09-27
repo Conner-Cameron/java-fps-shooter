@@ -116,6 +116,26 @@
   #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
   #crosshair::after  { top: 8px; left: 0; width: 18px; height: 2px; }
 
+  /* Small precision reticle shown while aiming with the pistol/rifle/SMG
+     (the sniper uses its own scope overlay instead) -- a red-dot-sight
+     style dot, tighter than the hip-fire crosshair since ADS implies a
+     steadier, more precise aim. */
+  #adsCrosshair {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 6px;
+    height: 6px;
+    margin: -3px 0 0 -3px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 2px rgba(0,0,0,0.9), 0 0 0 1px rgba(0,0,0,0.5);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s ease-out;
+  }
+  #adsCrosshair.show { opacity: 1; }
+
   #hitmarker {
     position: fixed;
     top: 50%;
@@ -312,6 +332,7 @@
 </div>
 
 <div id="crosshair"></div>
+<div id="adsCrosshair"></div>
 <div id="hitmarker"></div>
 <div id="scopeOverlay">
   <div id="scopeVignette">
