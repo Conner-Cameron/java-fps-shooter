@@ -28,6 +28,20 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
+  // Weapon stats are duplicated from GameServer.java's WEAPON_DAMAGE /
+  // WEAPON_COOLDOWN_MS / WEAPON_MAG_SIZE / WEAPON_RELOAD_MS for local UI/
+  // animation timing -- the server re-checks all of it authoritatively
+  // (ammo and reload included), so this copy only affects how the local
+  // view feels, never the actual outcome of a shot. Declared up here
+  // (rather than down by the gun-model code) because the practice-target
+  // HP range below is derived from it.
+  const WEAPONS = [
+    { name: "Pistol", damage: 20, cooldown: 150, magSize: 8, reloadMs: 1000 },
+    { name: "Rifle", damage: 34, cooldown: 300, magSize: 24, reloadMs: 1600 },
+    { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200 },
+    { name: "SMG", damage: 14, cooldown: 100, magSize: 20, reloadMs: 1300, automatic: true }
+  ];
+
   // ================================================================
   // World: same arena layout as the desktop version, now dressed with a
   // gradient sky, a textured ground, a distant mountain ring (so the
@@ -331,9 +345,21 @@
     return [x, y, z];
   }
 
+  // Target HP is randomized between the weakest and strongest weapon's
+  // damage, so a one-shot kill isn't guaranteed regardless of weapon --
+  // a full-HP block needs several SMG/pistol hits but can still go down
+  // in one sniper shot, mirroring how damage already works in PvP.
+  const MIN_WEAPON_DAMAGE = Math.min(...WEAPONS.map((w) => w.damage));
+  const MAX_WEAPON_DAMAGE = Math.max(...WEAPONS.map((w) => w.damage));
+
+  function randomTargetHp() {
+    return MIN_WEAPON_DAMAGE + Math.floor(Math.random() * (MAX_WEAPON_DAMAGE - MIN_WEAPON_DAMAGE + 1));
+  }
+
   for (let i = 0; i < TARGET_COUNT; i++) {
     const mesh = addBox(randomArenaPosition(1 + Math.random() * 3.5), [TARGET_SIZE, TARGET_SIZE, TARGET_SIZE], 0xffffff, hazardTexture, 1.2);
-    targets.push({ mesh });
+    const maxHp = randomTargetHp();
+    targets.push({ mesh, hp: maxHp, maxHp, flashUntil: 0 });
   }
 
   // ================================================================
@@ -394,17 +420,6 @@
   // muzzle flash on firing. Without this the local player was just a bare
   // floating camera with no sense of a body/weapon in their own view.
   // ================================================================
-  // Weapon stats are duplicated from GameServer.java's WEAPON_DAMAGE /
-  // WEAPON_COOLDOWN_MS / WEAPON_MAG_SIZE / WEAPON_RELOAD_MS for local UI/
-  // animation timing -- the server re-checks all of it authoritatively
-  // (ammo and reload included), so this copy only affects how the local
-  // view feels, never the actual outcome of a shot.
-  const WEAPONS = [
-    { name: "Pistol", damage: 20, cooldown: 150, magSize: 8, reloadMs: 1000 },
-    { name: "Rifle", damage: 34, cooldown: 300, magSize: 24, reloadMs: 1600 },
-    { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200 },
-    { name: "SMG", damage: 14, cooldown: 100, magSize: 20, reloadMs: 1300, automatic: true }
-  ];
   let currentWeapon = 1;
   let lastShotTime = 0;
   let ammo = WEAPONS.map((w) => w.magSize);
@@ -813,11 +828,24 @@
     if (hits.length > 0) {
       const hitMesh = hits[0].object;
       const target = targets.find((t) => t.mesh === hitMesh);
-      const [x, y, z] = randomArenaPosition(1 + Math.random() * 3.5);
-      target.mesh.position.set(x, y, z);
-      score++;
-      scoreEl.textContent = String(score);
+      target.hp -= WEAPONS[currentWeapon].damage;
       triggerHitFeedback();
+
+      if (target.hp <= 0) {
+        const [x, y, z] = randomArenaPosition(1 + Math.random() * 3.5);
+        target.mesh.position.set(x, y, z);
+        target.maxHp = randomTargetHp();
+        target.hp = target.maxHp;
+        target.mesh.material.emissive.setHex(0x000000);
+        target.flashUntil = 0;
+        score++;
+        scoreEl.textContent = String(score);
+      } else {
+        // Briefly glow so a hit that didn't destroy the block still reads
+        // as "damaged" rather than looking like nothing happened.
+        target.mesh.material.emissive.setHex(0x554400);
+        target.flashUntil = performance.now() + 120;
+      }
     }
 
     if (ammo[currentWeapon] <= 0) requestReload();
@@ -968,6 +996,13 @@
       reloading = false;
       ammo[currentWeapon] = WEAPONS[currentWeapon].magSize;
       updateAmmoHud();
+    }
+
+    for (const t of targets) {
+      if (t.flashUntil && now >= t.flashUntil) {
+        t.mesh.material.emissive.setHex(0x000000);
+        t.flashUntil = 0;
+      }
     }
 
     // Automatic weapons (SMG) keep firing every frame the button is held,
