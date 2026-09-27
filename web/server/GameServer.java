@@ -42,18 +42,18 @@ public class GameServer {
     private static final long MATCH_RESET_DELAY_MS = 6000;
 
     private static final int MAX_HP = 100;
-    // index: 0 = pistol, 1 = rifle, 2 = sniper
-    private static final int[] WEAPON_DAMAGE = {20, 34, 100};
-    private static final long[] WEAPON_COOLDOWN_MS = {150, 300, 1000};
-    private static final int[] WEAPON_MAG_SIZE = {8, 24, 5};
-    private static final long[] WEAPON_RELOAD_MS = {1000, 1600, 2200};
+    // index: 0 = pistol, 1 = rifle, 2 = sniper, 3 = SMG (automatic -- client fires it on a timer while held)
+    private static final int[] WEAPON_DAMAGE = {20, 34, 100, 14};
+    private static final long[] WEAPON_COOLDOWN_MS = {150, 300, 1000, 100};
+    private static final int[] WEAPON_MAG_SIZE = {8, 24, 5, 20};
+    private static final long[] WEAPON_RELOAD_MS = {1000, 1600, 2200, 1300};
 
     private static int clampWeapon(int weapon) {
         return Math.max(0, Math.min(WEAPON_DAMAGE.length - 1, weapon));
     }
 
     private static int[] fullMagazines() {
-        return new int[]{WEAPON_MAG_SIZE[0], WEAPON_MAG_SIZE[1], WEAPON_MAG_SIZE[2]};
+        return new int[]{WEAPON_MAG_SIZE[0], WEAPON_MAG_SIZE[1], WEAPON_MAG_SIZE[2], WEAPON_MAG_SIZE[3]};
     }
 
     private static final Map<Integer, Player> players = new ConcurrentHashMap<>();

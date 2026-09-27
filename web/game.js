@@ -402,7 +402,8 @@
   const WEAPONS = [
     { name: "Pistol", damage: 20, cooldown: 150, magSize: 8, reloadMs: 1000 },
     { name: "Rifle", damage: 34, cooldown: 300, magSize: 24, reloadMs: 1600 },
-    { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200 }
+    { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200 },
+    { name: "SMG", damage: 14, cooldown: 100, magSize: 20, reloadMs: 1300, automatic: true }
   ];
   let currentWeapon = 1;
   let lastShotTime = 0;
@@ -447,6 +448,15 @@
       part(accentMat, 0, -0.16, 0.28, 0.08, 0.18, 0.1);
       part(metalMat, 0, 0.02, 0.55, 0.08, 0.09, 0.3);
       flashPos = [0, 0.01, -0.8];
+    } else if (type === 3) {
+      // SMG -- compact body, short barrel, chunky high-capacity magazine,
+      // small folding-style stock (shorter overall than the rifle)
+      part(metalMat, 0, -0.02, 0.08, 0.11, 0.11, 0.42);
+      part(metalMat, 0, 0.02, -0.24, 0.045, 0.045, 0.24);
+      part(accentMat, 0, -0.14, 0.18, 0.08, 0.18, 0.1);
+      part(accentMat, 0, -0.12, 0.09, 0.07, 0.24, 0.09);
+      part(metalMat, 0, 0.02, 0.32, 0.07, 0.08, 0.16);
+      flashPos = [0, 0.02, -0.36];
     } else {
       // Rifle (default) -- body/barrel/grip/magazine/stock
       part(metalMat, 0, -0.02, 0.1, 0.12, 0.12, 0.55);
@@ -467,7 +477,7 @@
   const GUN_RECOIL_DURATION = 0.18;
   const GUN_MUZZLE_FLASH_DURATION = 0.05;
 
-  const gunModels = [createGunModel(0), createGunModel(1), createGunModel(2)];
+  const gunModels = [createGunModel(0), createGunModel(1), createGunModel(2), createGunModel(3)];
   gunModels.forEach((g, i) => {
     g.position.set(GUN_BASE_POS.x, GUN_BASE_POS.y, GUN_BASE_POS.z);
     g.rotation.y = THREE.MathUtils.degToRad(8);
@@ -713,6 +723,7 @@
       if (e.code === "Digit1") selectWeapon(0);
       else if (e.code === "Digit2") selectWeapon(1);
       else if (e.code === "Digit3") selectWeapon(2);
+      else if (e.code === "Digit4") selectWeapon(3);
       else if (e.code === "KeyR") requestReload();
     }
   });
@@ -741,6 +752,7 @@
 
   document.addEventListener("pointerlockchange", () => {
     overlay.hidden = isLocked();
+    if (!isLocked()) mouseHeld = false;
   });
 
   document.addEventListener("mousemove", (e) => {
@@ -759,9 +771,14 @@
     ).normalize();
   }
 
+  let mouseHeld = false;
   canvas.addEventListener("mousedown", (e) => {
     if (!isLocked() || e.button !== 0 || isDead) return;
+    mouseHeld = true;
     shoot();
+  });
+  window.addEventListener("mouseup", (e) => {
+    if (e.button === 0) mouseHeld = false;
   });
 
   // ================================================================
@@ -951,6 +968,13 @@
       reloading = false;
       ammo[currentWeapon] = WEAPONS[currentWeapon].magSize;
       updateAmmoHud();
+    }
+
+    // Automatic weapons (SMG) keep firing every frame the button is held,
+    // gated by shoot()'s own cooldown check -- semi-auto weapons ignore
+    // this and only fire once per actual click.
+    if (isLocked() && !isDead && mouseHeld && WEAPONS[currentWeapon].automatic) {
+      shoot();
     }
 
     let moving = false;
