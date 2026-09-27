@@ -41,15 +41,23 @@
   // (aiming steadies your shot at the cost of mobility, standard FPS
   // convention); scope: true gives the full circular scope overlay
   // treatment instead of just a tighter FOV/repositioned gun model.
+  //
+  // hipSpread/adsSpread: half-angle (degrees) of the random cone each shot
+  // is perturbed within -- hipSpread applies at 0% aimed, adsSpread at
+  // 100%, blended by adsBlend in between (see shoot()). At distance D, a
+  // spread of theta degrees offsets a shot by roughly D*tan(theta) --
+  // sized against the ~0.4-unit player hitbox half-width so hip-fire stays
+  // reliable at close range but increasingly unreliable at longer range,
+  // pushing toward ADS's near-pinpoint accuracy instead.
   const WEAPONS = [
     { name: "Pistol", damage: 20, cooldown: 150, magSize: 8, reloadMs: 1000,
-      adsFov: 55, adsSpeed: 12, adsMoveMult: 0.8 },
+      adsFov: 55, adsSpeed: 12, adsMoveMult: 0.8, hipSpread: 1.2, adsSpread: 0.1 },
     { name: "Rifle", damage: 34, cooldown: 300, magSize: 24, reloadMs: 1600,
-      adsFov: 45, adsSpeed: 9, adsMoveMult: 0.7 },
+      adsFov: 45, adsSpeed: 9, adsMoveMult: 0.7, hipSpread: 3.0, adsSpread: 0.1 },
     { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200,
-      adsFov: 15, adsSpeed: 6, adsMoveMult: 0.35, scope: true },
+      adsFov: 15, adsSpeed: 6, adsMoveMult: 0.35, scope: true, hipSpread: 6.0, adsSpread: 0.05 },
     { name: "SMG", damage: 14, cooldown: 100, magSize: 20, reloadMs: 1300, automatic: true,
-      adsFov: 58, adsSpeed: 14, adsMoveMult: 0.85 }
+      adsFov: 58, adsSpeed: 14, adsMoveMult: 0.85, hipSpread: 1.8, adsSpread: 0.15 }
   ];
 
   // ================================================================
@@ -1224,6 +1232,25 @@
   const scoreEl = document.getElementById("score");
   let score = 0;
 
+  // Perturbs a direction within a random cone (uniform over the cone's
+  // area, so hits cluster naturally toward center rather than piling up
+  // at the edge) -- the small-angle tangent-plane approximation used here
+  // is the standard, cheap way games do weapon spread/bloom.
+  function applySpread(dir, spreadDegrees) {
+    if (spreadDegrees <= 0) return dir;
+    const maxRad = THREE.MathUtils.degToRad(spreadDegrees);
+    const r = maxRad * Math.sqrt(Math.random());
+    const phi = Math.random() * Math.PI * 2;
+    const upHint = Math.abs(dir.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const right = new THREE.Vector3().crossVectors(dir, upHint).normalize();
+    const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+    return new THREE.Vector3()
+      .copy(dir)
+      .addScaledVector(right, r * Math.cos(phi))
+      .addScaledVector(up, r * Math.sin(phi))
+      .normalize();
+  }
+
   function shoot() {
     if (reloading) return;
     if (ammo[currentWeapon] <= 0) {
@@ -1240,7 +1267,10 @@
 
     triggerGunFire();
 
-    const forward = getForward();
+    const aimDir = getForward();
+    const weaponSpec = WEAPONS[currentWeapon];
+    const spreadDegrees = weaponSpec.hipSpread + (weaponSpec.adsSpread - weaponSpec.hipSpread) * adsBlend;
+    const forward = applySpread(aimDir, spreadDegrees);
     raycaster.set(camera.position, forward);
 
     const hits = raycaster.intersectObjects(targets.map((t) => t.mesh));
@@ -1585,6 +1615,11 @@
     const showAdsCrosshair = !!(aiming && !activeWeapon.scope && adsBlend > 0.4);
     adsCrosshairEl.classList.toggle("show", showAdsCrosshair);
     crosshairEl.classList.toggle("hidden", aiming);
+    // Visualizes the current weapon's hip-fire bloom -- wider gap = less
+    // accurate. Only actually visible while not aiming (the crosshair
+    // hides instantly otherwise), so this doesn't need to track adsBlend.
+    const crosshairGapPx = 4 + activeWeapon.hipSpread * 4;
+    crosshairEl.style.setProperty("--gap", crosshairGapPx + "px");
 
     updateGunModel(dt, moving, adsBlend, sprinting);
     sendStateIfDue(now);
