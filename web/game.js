@@ -1002,6 +1002,15 @@
   let verticalVelocity = 0;
   let grounded = true;
 
+  // Safety net: a "prevent entry" collision system has no answer for
+  // actually ending up embedded in solid geometry, however that happens --
+  // every further move attempt also reads as "colliding" from in there,
+  // since you're already inside something, so without this a single edge
+  // case anywhere in the collision math means being stuck forever. Each
+  // frame, if the player's current spot doesn't collide, it's remembered;
+  // if it ever does, they're snapped back to the last spot that was fine.
+  let lastSafeX = 0, lastSafeY = 1.7, lastSafeZ = 8;
+
   // Casts down from just above the player's current feet, far enough to
   // cover however much they're about to fall/step down this frame -- not
   // from high above, which would incorrectly detect a floor several
@@ -1384,6 +1393,17 @@
 
     let moving = false;
     if (isLocked() && !isDead) {
+      const currentFeetY = camera.position.y - EYE_HEIGHT;
+      if (collidesAt(camera.position.x, currentFeetY, camera.position.z)) {
+        camera.position.set(lastSafeX, lastSafeY, lastSafeZ);
+        verticalVelocity = 0;
+        grounded = false; // let ground detection sort out standing vs falling next frame
+      } else {
+        lastSafeX = camera.position.x;
+        lastSafeY = camera.position.y;
+        lastSafeZ = camera.position.z;
+      }
+
       const forward = getForward();
       const flatForward = new THREE.Vector3(forward.x, 0, forward.z);
       if (flatForward.lengthSq() > 0.0001) flatForward.normalize();
@@ -1421,7 +1441,14 @@
       if (verticalVelocity > 0) {
         const headY = feetY + PLAYER_HEIGHT;
         const proposedHeadY = proposedFeetY + PLAYER_HEIGHT;
-        const ceilingY = findCeilingY(camera.position.x, camera.position.z, headY, proposedHeadY);
+        let ceilingY = findCeilingY(camera.position.x, camera.position.z, headY, proposedHeadY);
+        // Ramps aren't in solidBoxes (see collidesWithRamps' comment), so
+        // findCeilingY alone can't see them -- without this, jumping into
+        // the underside of a ramp (e.g. under the spiral) went completely
+        // unchecked and could clip the player up into its solid interior.
+        if (ceilingY === null && collidesWithRamps(camera.position.x, proposedFeetY, proposedHeadY, camera.position.z)) {
+          ceilingY = headY; // block the ascent right where it is this frame
+        }
         if (ceilingY !== null) {
           camera.position.y = ceilingY - PLAYER_HEIGHT + EYE_HEIGHT;
           verticalVelocity = 0;
