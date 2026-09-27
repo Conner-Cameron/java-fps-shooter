@@ -50,6 +50,18 @@
   // ================================================================
   const targets = []; // local practice bots -- shootable, respawn on hit, not networked
   const collidables = []; // meshes the ground-detection raycast can land the player on (see the jump/gravity code)
+  const solidBoxes = []; // precomputed Box3s for horizontal + ceiling collision against static structure
+
+  // Registers a static mesh as real solid structure: standable from above
+  // (via `collidables`, used by the downward ground raycast) AND blocking
+  // horizontally / from below (via `solidBoxes`, used by the horizontal
+  // slide + ceiling checks). Moving objects (practice targets) deliberately
+  // don't go through this -- their Box3 would need recomputing every frame.
+  function registerSolid(mesh) {
+    collidables.push(mesh);
+    solidBoxes.push(new THREE.Box3().setFromObject(mesh));
+    return mesh;
+  }
 
   function addBox(position, size, color, texture, tileSize) {
     const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
@@ -267,15 +279,15 @@
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(0, -0.5, 0);
     scene.add(mesh);
-    collidables.push(mesh);
+    registerSolid(mesh);
   }
   addGround();
 
-  collidables.push(addBox([-6, 1.5, -5], [2, 3, 2], 0x9aa0ab, metalTexture));
-  collidables.push(addBox([6, 1.5, -8], [2, 3, 2], 0x9aa0ab, metalTexture));
-  collidables.push(addBox([0, 1.5, -14], [8, 3, 1], 0x8b909c, metalTexture));
-  collidables.push(addBox([-11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture));
-  collidables.push(addBox([11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture));
+  registerSolid(addBox([-6, 1.5, -5], [2, 3, 2], 0x9aa0ab, metalTexture));
+  registerSolid(addBox([6, 1.5, -8], [2, 3, 2], 0x9aa0ab, metalTexture));
+  registerSolid(addBox([0, 1.5, -14], [8, 3, 1], 0x8b909c, metalTexture));
+  registerSolid(addBox([-11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture));
+  registerSolid(addBox([11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture));
 
   // ---- Distant mountain ring -- breaks the "floating in a void" look ----
   function addMountains() {
@@ -342,11 +354,10 @@
   // around x=17). Its west-facing wall (facing the arena) is built from
   // sill/lintel/mullion segments with real open gaps for windows -- not
   // a solid wall with a decal -- so there's an actual sightline through
-  // each window down into the existing wall/tree area. Note: there's no
-  // collision detection against any obstacle in this engine (only a
-  // fixed ground plane), so this is a real structure you can see through
-  // and around, but not one you can walk inside and climb -- that would
-  // need a whole new "detect the ground beneath you" system.
+  // each window down into the existing wall/tree area. It's real solid
+  // structure (walls, mullions, and even the glass all block movement),
+  // so the windows are a view, not an entrance -- the roof, reached via
+  // the spiral ramp below, is the way in.
   function addBuilding() {
     const originX = 24, originZ = -10;
     const width = 8, length = 12;
@@ -356,33 +367,32 @@
     const bays = 3, bayWidth = length / bays, mullionWidth = 0.4;
     const windowWidth = bayWidth - mullionWidth;
 
-    // Floor slabs (including the roof cap) -- these are what the player can
-    // actually stand on, so each one is registered as a collidable.
+    // Floor slabs (including the roof cap) -- what the player stands on.
     for (let f = 0; f <= floors; f++) {
-      collidables.push(addBox([originX, f * floorHeight, originZ], [width, 0.3, length], 0x9a968c, metalTexture, 3));
+      registerSolid(addBox([originX, f * floorHeight, originZ], [width, 0.3, length], 0x9a968c, metalTexture, 3));
     }
 
     for (let f = 0; f < floors; f++) {
       const y = f * floorHeight + floorHeight / 2;
       // Solid east (back), north, and south walls
-      addBox([originX + width / 2 - 0.15, y, originZ], [0.3, floorHeight, length], 0xb9b6ac, metalTexture, 2);
-      addBox([originX, y, originZ - length / 2 + 0.15], [width, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2);
-      addBox([originX, y, originZ + length / 2 - 0.15], [width, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2);
+      registerSolid(addBox([originX + width / 2 - 0.15, y, originZ], [0.3, floorHeight, length], 0xb9b6ac, metalTexture, 2));
+      registerSolid(addBox([originX, y, originZ - length / 2 + 0.15], [width, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2));
+      registerSolid(addBox([originX, y, originZ + length / 2 - 0.15], [width, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2));
 
       // West wall (facing the arena): sill + lintel run the full length,
       // with open gaps between mullion pillars for the window bays.
       const wx = originX - width / 2 + 0.15;
       const floorBaseY = f * floorHeight;
-      addBox([wx, floorBaseY + sillHeight / 2, originZ], [0.3, sillHeight, length], 0xb9b6ac, metalTexture, 2);
-      addBox([wx, floorBaseY + sillHeight + windowHeight + lintelHeight / 2, originZ], [0.3, lintelHeight, length], 0xb9b6ac, metalTexture, 2);
+      registerSolid(addBox([wx, floorBaseY + sillHeight / 2, originZ], [0.3, sillHeight, length], 0xb9b6ac, metalTexture, 2));
+      registerSolid(addBox([wx, floorBaseY + sillHeight + windowHeight + lintelHeight / 2, originZ], [0.3, lintelHeight, length], 0xb9b6ac, metalTexture, 2));
 
       for (let b = 0; b <= bays; b++) {
         const bz = originZ - length / 2 + b * bayWidth;
-        addBox([wx, floorBaseY + sillHeight + windowHeight / 2, bz], [0.3, windowHeight, mullionWidth], 0x2b2b2e, metalTexture, 1);
+        registerSolid(addBox([wx, floorBaseY + sillHeight + windowHeight / 2, bz], [0.3, windowHeight, mullionWidth], 0x2b2b2e, metalTexture, 1));
       }
 
-      // Tinted glass in each opening -- translucent, so the arena is
-      // still visible through it rather than a fully blank hole.
+      // Tinted glass in each opening -- translucent (so the arena is still
+      // visible through it), but still solid, same as a real window.
       for (let b = 0; b < bays; b++) {
         const bz = originZ - length / 2 + b * bayWidth + bayWidth / 2;
         const glass = new THREE.Mesh(
@@ -391,6 +401,7 @@
         );
         glass.position.set(wx, floorBaseY + sillHeight + windowHeight / 2, bz);
         scene.add(glass);
+        registerSolid(glass);
       }
     }
 
@@ -398,12 +409,16 @@
   }
   const building = addBuilding();
 
-  // ---- Switchback staircase up the building's north side, so the roof is
-  // actually reachable on foot (not just visually present) -- this is what
-  // the new ground-detection system below needs a concrete surface to prove
-  // itself against. A general start/end ramp builder: position it at the
-  // segment's midpoint and orient it with lookAt so the math works for any
-  // direction/slope without hand-computing rotation angles.
+  // ---- Spiral ramp up to the roof, so it's actually reachable on foot.
+  // A sharp-cornered switchback was tried first, but once real horizontal
+  // and ceiling collision exist (see below), sharp 90-180 degree turns
+  // create overhangs and corner-snags that block movement -- a continuous
+  // gently-curving spiral (built from many short straight segments, each
+  // turning only a few degrees) avoids sharp corners entirely, so there's
+  // always clean headroom and a continuous walkable surface.
+  // General start/end ramp builder: position it at the segment's midpoint
+  // and orient it with lookAt so the math works for any direction/slope
+  // without hand-computing rotation angles.
   function addRamp(start, end, width, thickness) {
     const startV = new THREE.Vector3(...start);
     const endV = new THREE.Vector3(...end);
@@ -417,32 +432,41 @@
     mesh.position.copy(mid);
     mesh.lookAt(startV);
     scene.add(mesh);
+    // Deliberately NOT registerSolid(): an inclined mesh's axis-aligned Box3
+    // has to span its full rise (loose bounding box around a rotated
+    // shape), so it would overlap the player's collision box at almost any
+    // point while walking up it, blocking movement on the very ramp you're
+    // standing on. Ground detection (collidables) still works correctly
+    // against the mesh's real, sloped top surface via raycasting; it's
+    // only the coarser box-overlap check (horizontal/ceiling) that can't
+    // handle a rotated shape, so ramps just skip that part.
     collidables.push(mesh);
     return mesh;
   }
 
-  function addStaircase(b) {
-    const xLeft = b.originX - b.width / 2;
-    const xRight = b.originX + b.width / 2;
-    const z = b.originZ - b.length / 2 - 2; // just north of the building
+  function addSpiralRamp(b) {
+    const cx = b.originX;
+    const cz = b.originZ + b.length / 2 + 5.5; // clear ground south of the building
+    const radius = 3.5;
     const rampWidth = 2.5, rampThickness = 0.3;
+    const roofY = b.floors * b.floorHeight;
+    const revolutions = 3;
+    const segments = 48;
+    const angleStep = (revolutions * Math.PI * 2) / segments;
+    const riseStep = roofY / segments;
 
-    let fromLeft = true;
-    for (let f = 0; f < b.floors; f++) {
-      const y0 = f * b.floorHeight;
-      const y1 = (f + 1) * b.floorHeight;
-      const start = fromLeft ? [xLeft, y0, z] : [xRight, y0, z];
-      const end = fromLeft ? [xRight, y1, z] : [xLeft, y1, z];
-      addRamp(start, end, rampWidth, rampThickness);
-      fromLeft = !fromLeft;
+    let prev = [cx + radius, 0, cz];
+    for (let i = 1; i <= segments; i++) {
+      const angle = i * angleStep;
+      const next = [cx + radius * Math.cos(angle), i * riseStep, cz + radius * Math.sin(angle)];
+      addRamp(prev, next, rampWidth, rampThickness);
+      prev = next;
     }
 
-    // Short flat bridge connecting the top of the stairs to the roof slab.
-    const topX = fromLeft ? xLeft : xRight;
-    const roofY = b.floors * b.floorHeight;
-    addRamp([topX, roofY, z], [topX, roofY, b.originZ - b.length / 2], rampWidth, rampThickness);
+    // Short flat bridge connecting the top of the spiral to the roof slab.
+    addRamp(prev, [b.originX, roofY, b.originZ + b.length / 2], rampWidth, rampThickness);
   }
-  addStaircase(building);
+  addSpiralRamp(building);
 
   const TARGET_SIZE_MIN = 0.6;
   const TARGET_SIZE_MAX = 1.2;
@@ -942,6 +966,46 @@
     return hits.length > 0 ? hits[0].point.y : null;
   }
 
+  // Horizontal collision + ceiling detection against `solidBoxes` -- the
+  // player is approximated as a vertical cylinder (radius + height), which
+  // in turn is approximated as an axis-aligned box for these checks. Both
+  // are standard, cheap simplifications for a simple FPS controller.
+  const PLAYER_RADIUS = 0.35;
+  const PLAYER_HEIGHT = 1.8;
+  // The floor/slab/ramp the player is currently standing on is itself in
+  // solidBoxes -- its top surface sits exactly at the player's feet, so
+  // without this small gap, standing still would count as "colliding with
+  // the ground" and block all horizontal movement. Starting the check
+  // box just above the feet avoids that without weakening real wall
+  // detection at all (walls span well past this tiny margin anyway).
+  const STAND_CLEARANCE = 0.05;
+  const playerBox = new THREE.Box3();
+
+  function collidesAt(x, feetY, z) {
+    playerBox.min.set(x - PLAYER_RADIUS, feetY + STAND_CLEARANCE, z - PLAYER_RADIUS);
+    playerBox.max.set(x + PLAYER_RADIUS, feetY + PLAYER_HEIGHT, z + PLAYER_RADIUS);
+    for (let i = 0; i < solidBoxes.length; i++) {
+      if (playerBox.intersectsBox(solidBoxes[i])) return true;
+    }
+    return false;
+  }
+
+  // Is there a solid ceiling between the player's current head height and
+  // where their head would end up this frame? Returns the lowest such
+  // ceiling's underside, or null if the way up is clear.
+  function findCeilingY(x, z, headY, proposedHeadY) {
+    let closest = null;
+    for (let i = 0; i < solidBoxes.length; i++) {
+      const b = solidBoxes[i];
+      if (x + PLAYER_RADIUS < b.min.x || x - PLAYER_RADIUS > b.max.x) continue;
+      if (z + PLAYER_RADIUS < b.min.z || z - PLAYER_RADIUS > b.max.z) continue;
+      if (b.min.y >= headY && b.min.y <= proposedHeadY) {
+        if (closest === null || b.min.y < closest) closest = b.min.y;
+      }
+    }
+    return closest;
+  }
+
   function isLocked() {
     return document.pointerLockElement === canvas;
   }
@@ -1249,10 +1313,23 @@
 
       const velocity = MOVE_SPEED * dt;
       moving = keys["KeyW"] || keys["KeyS"] || keys["KeyD"] || keys["KeyA"];
-      if (keys["KeyW"]) camera.position.addScaledVector(flatForward, velocity);
-      if (keys["KeyS"]) camera.position.addScaledVector(flatForward, -velocity);
-      if (keys["KeyD"]) camera.position.addScaledVector(right, velocity);
-      if (keys["KeyA"]) camera.position.addScaledVector(right, -velocity);
+
+      let moveX = 0, moveZ = 0;
+      if (keys["KeyW"]) { moveX += flatForward.x * velocity; moveZ += flatForward.z * velocity; }
+      if (keys["KeyS"]) { moveX -= flatForward.x * velocity; moveZ -= flatForward.z * velocity; }
+      if (keys["KeyD"]) { moveX += right.x * velocity; moveZ += right.z * velocity; }
+      if (keys["KeyA"]) { moveX -= right.x * velocity; moveZ -= right.z * velocity; }
+
+      // Resolve X and Z separately (not as one combined step) so walking
+      // diagonally into a wall slides you along it instead of just
+      // stopping dead -- whichever axis isn't blocked still moves.
+      const feetYForXZ = camera.position.y - EYE_HEIGHT;
+      if (moveX !== 0 && !collidesAt(camera.position.x + moveX, feetYForXZ, camera.position.z)) {
+        camera.position.x += moveX;
+      }
+      if (moveZ !== 0 && !collidesAt(camera.position.x, feetYForXZ, camera.position.z + moveZ)) {
+        camera.position.z += moveZ;
+      }
 
       if (keys["Space"] && grounded) {
         verticalVelocity = JUMP_SPEED;
@@ -1262,16 +1339,29 @@
 
       const feetY = camera.position.y - EYE_HEIGHT;
       const proposedFeetY = feetY + verticalVelocity * dt;
-      const fallDistance = Math.max(0, feetY - proposedFeetY);
-      const surfaceY = verticalVelocity <= 0 ? findGroundY(feetY, fallDistance) : null;
 
-      if (surfaceY !== null) {
-        camera.position.y = surfaceY + EYE_HEIGHT;
-        verticalVelocity = 0;
-        grounded = true;
-      } else {
-        camera.position.y = proposedFeetY + EYE_HEIGHT;
+      if (verticalVelocity > 0) {
+        const headY = feetY + PLAYER_HEIGHT;
+        const proposedHeadY = proposedFeetY + PLAYER_HEIGHT;
+        const ceilingY = findCeilingY(camera.position.x, camera.position.z, headY, proposedHeadY);
+        if (ceilingY !== null) {
+          camera.position.y = ceilingY - PLAYER_HEIGHT + EYE_HEIGHT;
+          verticalVelocity = 0;
+        } else {
+          camera.position.y = proposedFeetY + EYE_HEIGHT;
+        }
         grounded = false;
+      } else {
+        const fallDistance = Math.max(0, feetY - proposedFeetY);
+        const surfaceY = findGroundY(feetY, fallDistance);
+        if (surfaceY !== null) {
+          camera.position.y = surfaceY + EYE_HEIGHT;
+          verticalVelocity = 0;
+          grounded = true;
+        } else {
+          camera.position.y = proposedFeetY + EYE_HEIGHT;
+          grounded = false;
+        }
       }
 
       camera.lookAt(
