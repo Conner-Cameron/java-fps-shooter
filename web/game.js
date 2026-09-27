@@ -335,6 +335,64 @@
    [-2, -17, 0.7], [2, -18, 1.1], [-13, -24, 1], [13, -25, 0.85]]
     .forEach(([x, z, s]) => addRock(x, z, s));
 
+  // ---- Multi-floor building overlooking the wall/tree cluster ----
+  // Placed on open grass east of the tree/rock scatter (which tops out
+  // around x=17). Its west-facing wall (facing the arena) is built from
+  // sill/lintel/mullion segments with real open gaps for windows -- not
+  // a solid wall with a decal -- so there's an actual sightline through
+  // each window down into the existing wall/tree area. Note: there's no
+  // collision detection against any obstacle in this engine (only a
+  // fixed ground plane), so this is a real structure you can see through
+  // and around, but not one you can walk inside and climb -- that would
+  // need a whole new "detect the ground beneath you" system.
+  function addBuilding() {
+    const originX = 24, originZ = -10;
+    const width = 8, length = 12;
+    const floors = 4, floorHeight = 3.4;
+    const sillHeight = 1.0, windowHeight = 1.8;
+    const lintelHeight = floorHeight - sillHeight - windowHeight;
+    const bays = 3, bayWidth = length / bays, mullionWidth = 0.4;
+    const windowWidth = bayWidth - mullionWidth;
+
+    // Floor slabs (including the roof cap)
+    for (let f = 0; f <= floors; f++) {
+      addBox([originX, f * floorHeight, originZ], [width, 0.3, length], 0x9a968c, metalTexture, 3);
+    }
+
+    for (let f = 0; f < floors; f++) {
+      const y = f * floorHeight + floorHeight / 2;
+      // Solid east (back), north, and south walls
+      addBox([originX + width / 2 - 0.15, y, originZ], [0.3, floorHeight, length], 0xb9b6ac, metalTexture, 2);
+      addBox([originX, y, originZ - length / 2 + 0.15], [width, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2);
+      addBox([originX, y, originZ + length / 2 - 0.15], [width, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2);
+
+      // West wall (facing the arena): sill + lintel run the full length,
+      // with open gaps between mullion pillars for the window bays.
+      const wx = originX - width / 2 + 0.15;
+      const floorBaseY = f * floorHeight;
+      addBox([wx, floorBaseY + sillHeight / 2, originZ], [0.3, sillHeight, length], 0xb9b6ac, metalTexture, 2);
+      addBox([wx, floorBaseY + sillHeight + windowHeight + lintelHeight / 2, originZ], [0.3, lintelHeight, length], 0xb9b6ac, metalTexture, 2);
+
+      for (let b = 0; b <= bays; b++) {
+        const bz = originZ - length / 2 + b * bayWidth;
+        addBox([wx, floorBaseY + sillHeight + windowHeight / 2, bz], [0.3, windowHeight, mullionWidth], 0x2b2b2e, metalTexture, 1);
+      }
+
+      // Tinted glass in each opening -- translucent, so the arena is
+      // still visible through it rather than a fully blank hole.
+      for (let b = 0; b < bays; b++) {
+        const bz = originZ - length / 2 + b * bayWidth + bayWidth / 2;
+        const glass = new THREE.Mesh(
+          new THREE.BoxGeometry(0.05, windowHeight, windowWidth),
+          new THREE.MeshLambertMaterial({ color: 0x8fd0e6, transparent: true, opacity: 0.28 })
+        );
+        glass.position.set(wx, floorBaseY + sillHeight + windowHeight / 2, bz);
+        scene.add(glass);
+      }
+    }
+  }
+  addBuilding();
+
   const TARGET_SIZE_MIN = 0.6;
   const TARGET_SIZE_MAX = 1.2;
   const TARGET_COUNT = 6;
