@@ -49,6 +49,7 @@
   // trees/rocks for foreground detail.
   // ================================================================
   const targets = []; // local practice bots -- shootable, respawn on hit, not networked
+  const collidables = []; // meshes the ground-detection raycast can land the player on (see the jump/gravity code)
 
   function addBox(position, size, color, texture, tileSize) {
     const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
@@ -266,14 +267,15 @@
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(0, -0.5, 0);
     scene.add(mesh);
+    collidables.push(mesh);
   }
   addGround();
 
-  addBox([-6, 1.5, -5], [2, 3, 2], 0x9aa0ab, metalTexture);
-  addBox([6, 1.5, -8], [2, 3, 2], 0x9aa0ab, metalTexture);
-  addBox([0, 1.5, -14], [8, 3, 1], 0x8b909c, metalTexture);
-  addBox([-11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture);
-  addBox([11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture);
+  collidables.push(addBox([-6, 1.5, -5], [2, 3, 2], 0x9aa0ab, metalTexture));
+  collidables.push(addBox([6, 1.5, -8], [2, 3, 2], 0x9aa0ab, metalTexture));
+  collidables.push(addBox([0, 1.5, -14], [8, 3, 1], 0x8b909c, metalTexture));
+  collidables.push(addBox([-11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture));
+  collidables.push(addBox([11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture));
 
   // ---- Distant mountain ring -- breaks the "floating in a void" look ----
   function addMountains() {
@@ -354,9 +356,10 @@
     const bays = 3, bayWidth = length / bays, mullionWidth = 0.4;
     const windowWidth = bayWidth - mullionWidth;
 
-    // Floor slabs (including the roof cap)
+    // Floor slabs (including the roof cap) -- these are what the player can
+    // actually stand on, so each one is registered as a collidable.
     for (let f = 0; f <= floors; f++) {
-      addBox([originX, f * floorHeight, originZ], [width, 0.3, length], 0x9a968c, metalTexture, 3);
+      collidables.push(addBox([originX, f * floorHeight, originZ], [width, 0.3, length], 0x9a968c, metalTexture, 3));
     }
 
     for (let f = 0; f < floors; f++) {
@@ -390,8 +393,56 @@
         scene.add(glass);
       }
     }
+
+    return { originX, originZ, width, length, floors, floorHeight };
   }
-  addBuilding();
+  const building = addBuilding();
+
+  // ---- Switchback staircase up the building's north side, so the roof is
+  // actually reachable on foot (not just visually present) -- this is what
+  // the new ground-detection system below needs a concrete surface to prove
+  // itself against. A general start/end ramp builder: position it at the
+  // segment's midpoint and orient it with lookAt so the math works for any
+  // direction/slope without hand-computing rotation angles.
+  function addRamp(start, end, width, thickness) {
+    const startV = new THREE.Vector3(...start);
+    const endV = new THREE.Vector3(...end);
+    const length = Math.max(startV.distanceTo(endV), 0.01);
+    const mid = new THREE.Vector3().addVectors(startV, endV).multiplyScalar(0.5);
+    const mat = new THREE.MeshLambertMaterial({
+      color: 0x9a968c,
+      map: tiledClone(metalTexture, Math.max(width / 2, 0.5), Math.max(length / 2, 0.5))
+    });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, thickness, length), mat);
+    mesh.position.copy(mid);
+    mesh.lookAt(startV);
+    scene.add(mesh);
+    collidables.push(mesh);
+    return mesh;
+  }
+
+  function addStaircase(b) {
+    const xLeft = b.originX - b.width / 2;
+    const xRight = b.originX + b.width / 2;
+    const z = b.originZ - b.length / 2 - 2; // just north of the building
+    const rampWidth = 2.5, rampThickness = 0.3;
+
+    let fromLeft = true;
+    for (let f = 0; f < b.floors; f++) {
+      const y0 = f * b.floorHeight;
+      const y1 = (f + 1) * b.floorHeight;
+      const start = fromLeft ? [xLeft, y0, z] : [xRight, y0, z];
+      const end = fromLeft ? [xRight, y1, z] : [xLeft, y1, z];
+      addRamp(start, end, rampWidth, rampThickness);
+      fromLeft = !fromLeft;
+    }
+
+    // Short flat bridge connecting the top of the stairs to the roof slab.
+    const topX = fromLeft ? xLeft : xRight;
+    const roofY = b.floors * b.floorHeight;
+    addRamp([topX, roofY, z], [topX, roofY, b.originZ - b.length / 2], rampWidth, rampThickness);
+  }
+  addStaircase(building);
 
   const TARGET_SIZE_MIN = 0.6;
   const TARGET_SIZE_MAX = 1.2;
@@ -864,11 +915,32 @@
   let isDead = false;
 
   // Jump/gravity -- replaces the old free-fly Space (rise) / Shift (descend).
-  const GROUND_Y = 1.7; // eye height when standing on the ground plane (y=0)
+  // Ground height is no longer a fixed constant: a downward raycast against
+  // `collidables` each frame finds whatever surface is actually beneath the
+  // player, so standing on a cover wall or a building floor works the same
+  // as standing on the ground plane.
+  const EYE_HEIGHT = 1.7;
   const JUMP_SPEED = 7.0;
   const GRAVITY = 18.0;
+  const GROUND_PROBE_UP = 0.4;   // cast the ray from this far above current feet
+  const GROUND_SNAP_MARGIN = 0.1; // a little slack beyond this frame's fall distance
+  const DOWN = new THREE.Vector3(0, -1, 0);
+  const groundProbeOrigin = new THREE.Vector3();
+  const groundRaycaster = new THREE.Raycaster();
   let verticalVelocity = 0;
   let grounded = true;
+
+  // Casts down from just above the player's current feet, far enough to
+  // cover however much they're about to fall/step down this frame -- not
+  // from high above, which would incorrectly detect a floor several
+  // stories up as "the ground" while standing on the level beneath it.
+  function findGroundY(feetY, fallDistance) {
+    groundProbeOrigin.set(camera.position.x, feetY + GROUND_PROBE_UP, camera.position.z);
+    groundRaycaster.set(groundProbeOrigin, DOWN);
+    groundRaycaster.far = GROUND_PROBE_UP + fallDistance + GROUND_SNAP_MARGIN;
+    const hits = groundRaycaster.intersectObjects(collidables, false);
+    return hits.length > 0 ? hits[0].point.y : null;
+  }
 
   function isLocked() {
     return document.pointerLockElement === canvas;
@@ -1187,11 +1259,19 @@
         grounded = false;
       }
       verticalVelocity -= GRAVITY * dt;
-      camera.position.y += verticalVelocity * dt;
-      if (camera.position.y <= GROUND_Y) {
-        camera.position.y = GROUND_Y;
+
+      const feetY = camera.position.y - EYE_HEIGHT;
+      const proposedFeetY = feetY + verticalVelocity * dt;
+      const fallDistance = Math.max(0, feetY - proposedFeetY);
+      const surfaceY = verticalVelocity <= 0 ? findGroundY(feetY, fallDistance) : null;
+
+      if (surfaceY !== null) {
+        camera.position.y = surfaceY + EYE_HEIGHT;
         verticalVelocity = 0;
         grounded = true;
+      } else {
+        camera.position.y = proposedFeetY + EYE_HEIGHT;
+        grounded = false;
       }
 
       camera.lookAt(
