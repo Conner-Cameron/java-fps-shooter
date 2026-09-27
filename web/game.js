@@ -751,6 +751,13 @@
   let started = false;
   let isDead = false;
 
+  // Jump/gravity -- replaces the old free-fly Space (rise) / Shift (descend).
+  const GROUND_Y = 1.7; // eye height when standing on the ground plane (y=0)
+  const JUMP_SPEED = 7.0;
+  const GRAVITY = 18.0;
+  let verticalVelocity = 0;
+  let grounded = true;
+
   function isLocked() {
     return document.pointerLockElement === canvas;
   }
@@ -911,6 +918,8 @@
     isDead = false;
     deathOverlay.classList.remove("show");
     if (pos) camera.position.set(pos[0], pos[1], pos[2]);
+    verticalVelocity = 0;
+    grounded = true;
   }
 
   let matchBannerTimeout = null;
@@ -1025,8 +1034,18 @@
       if (keys["KeyS"]) camera.position.addScaledVector(flatForward, -velocity);
       if (keys["KeyD"]) camera.position.addScaledVector(right, velocity);
       if (keys["KeyA"]) camera.position.addScaledVector(right, -velocity);
-      if (keys["Space"]) camera.position.y += velocity;
-      if (keys["ShiftLeft"] || keys["ShiftRight"]) camera.position.y -= velocity;
+
+      if (keys["Space"] && grounded) {
+        verticalVelocity = JUMP_SPEED;
+        grounded = false;
+      }
+      verticalVelocity -= GRAVITY * dt;
+      camera.position.y += verticalVelocity * dt;
+      if (camera.position.y <= GROUND_Y) {
+        camera.position.y = GROUND_Y;
+        verticalVelocity = 0;
+        grounded = true;
+      }
 
       camera.lookAt(
         camera.position.x + forward.x,
