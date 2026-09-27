@@ -335,7 +335,8 @@
    [-2, -17, 0.7], [2, -18, 1.1], [-13, -24, 1], [13, -25, 0.85]]
     .forEach(([x, z, s]) => addRock(x, z, s));
 
-  const TARGET_SIZE = 1.2;
+  const TARGET_SIZE_MIN = 0.6;
+  const TARGET_SIZE_MAX = 1.2;
   const TARGET_COUNT = 6;
   const ARENA_X = 34, ARENA_Z_NEAR = -2, ARENA_Z_FAR = 26;
 
@@ -363,23 +364,29 @@
   // ever needing collision logic against the arena's walls/terrain.
   function randomTargetMotion() {
     return {
-      horizSpeed: 0.3 + Math.random() * 1.2,
+      horizSpeed: 0.3 + Math.random() * 1.5,
       horizRadius: 1 + Math.random() * 3,
-      vertSpeed: 0.4 + Math.random() * 1.6,
+      vertSpeed: 0.4 + Math.random() * 2.0,
       vertRadius: 0.3 + Math.random() * 0.9,
       phase: Math.random() * Math.PI * 2
     };
   }
 
+  function randomTargetSize() {
+    return TARGET_SIZE_MIN + Math.random() * (TARGET_SIZE_MAX - TARGET_SIZE_MIN);
+  }
+
   function spawnTarget() {
     const [x, y, z] = randomArenaPosition(1 + Math.random() * 3.5);
-    const mesh = addBox([x, y, z], [TARGET_SIZE, TARGET_SIZE, TARGET_SIZE], 0xffffff, hazardTexture, 1.2);
+    const size = randomTargetSize();
+    const mesh = addBox([x, y, z], [size, size, size], 0xffffff, hazardTexture, 1.2);
     const maxHp = randomTargetHp();
     return {
       mesh,
       hp: maxHp,
       maxHp,
       flashUntil: 0,
+      size,
       home: new THREE.Vector3(x, y, z),
       motion: randomTargetMotion(),
       age: 0
@@ -902,14 +909,23 @@
       triggerHitFeedback();
 
       if (target.hp <= 0) {
+        // Size is baked into the geometry (and the hazard texture's tiling
+        // scales with it), so a fresh size means a fresh mesh rather than
+        // mutating the old one in place.
+        scene.remove(target.mesh);
+        target.mesh.geometry.dispose();
+        if (target.mesh.material.map) target.mesh.material.map.dispose();
+        target.mesh.material.dispose();
+
         const [x, y, z] = randomArenaPosition(1 + Math.random() * 3.5);
+        const size = randomTargetSize();
+        target.mesh = addBox([x, y, z], [size, size, size], 0xffffff, hazardTexture, 1.2);
+        target.size = size;
         target.home.set(x, y, z);
-        target.mesh.position.set(x, y, z);
         target.motion = randomTargetMotion();
         target.age = 0;
         target.maxHp = randomTargetHp();
         target.hp = target.maxHp;
-        target.mesh.material.emissive.setHex(0x000000);
         target.flashUntil = 0;
         score++;
         scoreEl.textContent = String(score);
@@ -1084,7 +1100,7 @@
       const dx = Math.sin(phased * t.motion.horizSpeed) * t.motion.horizRadius;
       const dz = Math.cos(phased * t.motion.horizSpeed * 0.8) * t.motion.horizRadius;
       const dy = Math.sin(phased * t.motion.vertSpeed) * t.motion.vertRadius;
-      t.mesh.position.set(t.home.x + dx, Math.max(0.7, t.home.y + dy), t.home.z + dz);
+      t.mesh.position.set(t.home.x + dx, Math.max(t.size / 2 + 0.1, t.home.y + dy), t.home.z + dz);
     }
 
     // Automatic weapons (SMG) keep firing every frame the button is held,
