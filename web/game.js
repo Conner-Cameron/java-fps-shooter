@@ -356,13 +356,41 @@
     return MIN_WEAPON_DAMAGE + Math.floor(Math.random() * (MAX_WEAPON_DAMAGE - MIN_WEAPON_DAMAGE + 1));
   }
 
+  // Each block gets its own horizontal drift and vertical bob speed/amplitude,
+  // rolled once at spawn and held fixed for that block's lifetime -- only
+  // re-rolled when it's destroyed and respawns elsewhere. Sine-based drift
+  // around a fixed "home" point (rather than bouncing off boundaries) avoids
+  // ever needing collision logic against the arena's walls/terrain.
+  function randomTargetMotion() {
+    return {
+      horizSpeed: 0.3 + Math.random() * 1.2,
+      horizRadius: 1 + Math.random() * 3,
+      vertSpeed: 0.4 + Math.random() * 1.6,
+      vertRadius: 0.3 + Math.random() * 0.9,
+      phase: Math.random() * Math.PI * 2
+    };
+  }
+
+  function spawnTarget() {
+    const [x, y, z] = randomArenaPosition(1 + Math.random() * 3.5);
+    const mesh = addBox([x, y, z], [TARGET_SIZE, TARGET_SIZE, TARGET_SIZE], 0xffffff, hazardTexture, 1.2);
+    const maxHp = randomTargetHp();
+    return {
+      mesh,
+      hp: maxHp,
+      maxHp,
+      flashUntil: 0,
+      home: new THREE.Vector3(x, y, z),
+      motion: randomTargetMotion(),
+      age: 0
+    };
+  }
+
   // Only spawned in Aim Training mode -- PvP is pure player-vs-player, no
   // practice blocks cluttering the arena. See the mode-select wiring below.
   function createPracticeTargets() {
     for (let i = 0; i < TARGET_COUNT; i++) {
-      const mesh = addBox(randomArenaPosition(1 + Math.random() * 3.5), [TARGET_SIZE, TARGET_SIZE, TARGET_SIZE], 0xffffff, hazardTexture, 1.2);
-      const maxHp = randomTargetHp();
-      targets.push({ mesh, hp: maxHp, maxHp, flashUntil: 0 });
+      targets.push(spawnTarget());
     }
   }
 
@@ -875,7 +903,10 @@
 
       if (target.hp <= 0) {
         const [x, y, z] = randomArenaPosition(1 + Math.random() * 3.5);
+        target.home.set(x, y, z);
         target.mesh.position.set(x, y, z);
+        target.motion = randomTargetMotion();
+        target.age = 0;
         target.maxHp = randomTargetHp();
         target.hp = target.maxHp;
         target.mesh.material.emissive.setHex(0x000000);
@@ -1047,6 +1078,13 @@
         t.mesh.material.emissive.setHex(0x000000);
         t.flashUntil = 0;
       }
+
+      t.age += dt;
+      const phased = t.age + t.motion.phase;
+      const dx = Math.sin(phased * t.motion.horizSpeed) * t.motion.horizRadius;
+      const dz = Math.cos(phased * t.motion.horizSpeed * 0.8) * t.motion.horizRadius;
+      const dy = Math.sin(phased * t.motion.vertSpeed) * t.motion.vertRadius;
+      t.mesh.position.set(t.home.x + dx, Math.max(0.7, t.home.y + dy), t.home.z + dz);
     }
 
     // Automatic weapons (SMG) keep firing every frame the button is held,
