@@ -41,6 +41,15 @@ public class GameServer {
     private static final long RESPAWN_DELAY_MS = 2000;
     private static final long MATCH_RESET_DELAY_MS = 6000;
 
+    private static final int MAX_HP = 100;
+    // index: 0 = pistol, 1 = rifle, 2 = sniper
+    private static final int[] WEAPON_DAMAGE = {20, 34, 100};
+    private static final long[] WEAPON_COOLDOWN_MS = {150, 300, 1000};
+
+    private static int clampWeapon(int weapon) {
+        return Math.max(0, Math.min(WEAPON_DAMAGE.length - 1, weapon));
+    }
+
     private static final Map<Integer, Player> players = new ConcurrentHashMap<>();
     private static final AtomicInteger nextId = new AtomicInteger(1);
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
@@ -258,6 +267,9 @@ public class GameServer {
         volatile double pitch = 0;
         volatile int kills = 0;
         volatile boolean alive = true;
+        volatile int hp = MAX_HP;
+        volatile int weapon = 1; // default: rifle
+        volatile long lastShotTime = 0;
 
         Player(int id, Socket socket) {
             this.id = id;
@@ -312,7 +324,7 @@ public class GameServer {
         List<String> others = new ArrayList<>();
         for (Player p : players.values()) {
             if (p.id == player.id) continue;
-            others.add(Json.obj("id", p.id, "name", p.name, "kills", p.kills, "pos", p.pos, "yaw", p.yaw, "pitch", p.pitch));
+            others.add(Json.obj("id", p.id, "name", p.name, "kills", p.kills, "hp", p.hp, "pos", p.pos, "yaw", p.yaw, "pitch", p.pitch));
         }
         player.sendText(Json.obj(
                 "type", "welcome",
@@ -362,6 +374,13 @@ public class GameServer {
                 handleShoot(player, obj);
                 break;
             }
+            case "weapon": {
+                Object idObj = obj.get("id");
+                if (idObj instanceof Number) {
+                    player.weapon = clampWeapon(((Number) idObj).intValue());
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -370,6 +389,16 @@ public class GameServer {
     @SuppressWarnings("unchecked")
     private static void handleShoot(Player shooter, Map<String, Object> obj) {
         if (!shooter.alive) return;
+
+        // Fire-rate is enforced here (not just trusted from the client) so a
+        // modified client can't just spam "shoot" messages faster than the
+        // equipped weapon allows. This gates the attempt itself -- a miss
+        // still consumes the cooldown, same as a real gun's fire rate.
+        long now = System.currentTimeMillis();
+        int weaponIdx = clampWeapon(shooter.weapon);
+        if (now - shooter.lastShotTime < WEAPON_COOLDOWN_MS[weaponIdx]) return;
+        shooter.lastShotTime = now;
+
         List<Object> originList = (List<Object>) obj.get("origin");
         List<Object> dirList = (List<Object>) obj.get("dir");
         if (originList == null || dirList == null) return;
@@ -388,11 +417,20 @@ public class GameServer {
             }
         }
 
-        if (closest == null) return;
+        if (closest == null) return; // miss -- cooldown still applies, nothing else to do
         Player victim = closest;
+
+        int damage = WEAPON_DAMAGE[weaponIdx];
+        victim.hp = Math.max(0, victim.hp - damage);
+        broadcast(Json.obj(
+                "type", "damage", "shooterId", shooter.id, "victimId", victim.id,
+                "damage", damage, "victimHp", victim.hp));
+
+        if (victim.hp > 0) return; // hit landed but didn't kill
+
         victim.alive = false;
         shooter.kills++;
-        broadcast(Json.obj("type", "hit", "shooterId", shooter.id, "victimId", victim.id, "shooterKills", shooter.kills));
+        broadcast(Json.obj("type", "kill", "shooterId", shooter.id, "victimId", victim.id, "shooterKills", shooter.kills));
 
         if (shooter.kills >= KILL_LIMIT) {
             broadcast(Json.obj("type", "matchOver", "winnerId", shooter.id, "winnerName", shooter.name, "score", shooter.kills));
@@ -404,12 +442,13 @@ public class GameServer {
 
         scheduler.schedule(() -> {
             victim.pos = randomSpawn();
+            victim.hp = MAX_HP;
             victim.alive = true;
             // Broadcast to everyone (not just the victim) as its own "respawn" message
             // rather than a regular "state" update -- other clients snap the avatar to
             // the new spot instead of smoothly interpolating it, so a respawn reads as
             // an instant teleport, not a glide across the map.
-            broadcast(Json.obj("type", "respawn", "id", victim.id, "pos", victim.pos));
+            broadcast(Json.obj("type", "respawn", "id", victim.id, "pos", victim.pos, "hp", victim.hp));
         }, RESPAWN_DELAY_MS, TimeUnit.MILLISECONDS);
     }
 

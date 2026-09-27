@@ -54,6 +54,51 @@
     user-select: none;
   }
 
+  #healthPanel {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    pointer-events: none;
+    user-select: none;
+  }
+  #healthBarTrack {
+    margin-top: 4px;
+    width: 160px;
+    height: 10px;
+    background: rgba(0,0,0,0.4);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  #healthBar {
+    height: 100%;
+    width: 100%;
+    background: #5ec25e;
+    transition: width 0.15s ease-out, background 0.15s ease-out;
+  }
+
+  #weaponPanel {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    text-align: right;
+    pointer-events: none;
+    user-select: none;
+  }
+  #weaponPanel .weaponKeys {
+    margin-top: 4px;
+    font-size: 12px;
+    font-weight: 400;
+    opacity: 0.75;
+  }
+
   #crosshair {
     position: fixed;
     top: 50%;
@@ -188,6 +233,15 @@
 </div>
 <div id="scoreboard"></div>
 <div id="status"></div>
+
+<div id="healthPanel">
+  <div>Health: <span id="health">100</span>/100</div>
+  <div id="healthBarTrack"><div id="healthBar"></div></div>
+</div>
+<div id="weaponPanel">
+  <div>Weapon: <span id="weaponName">Rifle</span> (<span id="weaponDamage">34</span> dmg)</div>
+  <div class="weaponKeys">[1] Pistol &nbsp; [2] Rifle &nbsp; [3] Sniper</div>
+</div>
 
 <div id="crosshair"></div>
 <div id="hitmarker"></div>

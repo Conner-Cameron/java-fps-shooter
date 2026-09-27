@@ -394,7 +394,19 @@
   // muzzle flash on firing. Without this the local player was just a bare
   // floating camera with no sense of a body/weapon in their own view.
   // ================================================================
-  function createGunModel() {
+  // Weapon stats are duplicated from GameServer.java's WEAPON_DAMAGE /
+  // WEAPON_COOLDOWN_MS for local UI/animation timing -- the server re-checks
+  // both authoritatively, so this copy only affects how the local view feels,
+  // never the actual outcome of a shot.
+  const WEAPONS = [
+    { name: "Pistol", damage: 20, cooldown: 150 },
+    { name: "Rifle", damage: 34, cooldown: 300 },
+    { name: "Sniper", damage: 100, cooldown: 1000 }
+  ];
+  let currentWeapon = 1;
+  let lastShotTime = 0;
+
+  function createGunModel(type) {
     const group = new THREE.Group();
     const metalMat = new THREE.MeshLambertMaterial({ color: 0x6b6f78, map: tiledClone(metalTexture, 1, 1) });
     const accentMat = new THREE.MeshLambertMaterial({ color: 0x17181a, map: tiledClone(metalTexture, 1, 1) });
@@ -407,13 +419,33 @@
       return mesh;
     }
 
-    part(metalMat, 0, -0.02, 0.1, 0.12, 0.12, 0.55);   // body/receiver
-    part(metalMat, 0, 0.02, -0.35, 0.05, 0.05, 0.35);  // barrel
-    part(accentMat, 0, -0.14, 0.2, 0.08, 0.18, 0.1);   // grip
-    part(accentMat, 0, -0.1, 0.02, 0.06, 0.14, 0.22);  // magazine
-    part(metalMat, 0, 0.02, 0.42, 0.09, 0.1, 0.22);    // stock
+    let flashPos;
+    if (type === 0) {
+      // Pistol -- compact, no stock
+      part(metalMat, 0, -0.02, 0.05, 0.1, 0.1, 0.3);
+      part(metalMat, 0, 0.01, -0.18, 0.04, 0.04, 0.18);
+      part(accentMat, 0, -0.16, 0.14, 0.08, 0.2, 0.09);
+      part(accentMat, 0, -0.24, 0.1, 0.06, 0.12, 0.08);
+      flashPos = [0, 0.01, -0.3];
+    } else if (type === 2) {
+      // Sniper -- long barrel, scope, extended stock
+      part(metalMat, 0, -0.02, 0.15, 0.1, 0.1, 0.6);
+      part(metalMat, 0, 0.01, -0.5, 0.04, 0.04, 0.55);
+      part(accentMat, 0, 0.09, 0.05, 0.06, 0.06, 0.3);
+      part(accentMat, 0, -0.16, 0.28, 0.08, 0.18, 0.1);
+      part(metalMat, 0, 0.02, 0.55, 0.08, 0.09, 0.3);
+      flashPos = [0, 0.01, -0.8];
+    } else {
+      // Rifle (default) -- body/barrel/grip/magazine/stock
+      part(metalMat, 0, -0.02, 0.1, 0.12, 0.12, 0.55);
+      part(metalMat, 0, 0.02, -0.35, 0.05, 0.05, 0.35);
+      part(accentMat, 0, -0.14, 0.2, 0.08, 0.18, 0.1);
+      part(accentMat, 0, -0.1, 0.02, 0.06, 0.14, 0.22);
+      part(metalMat, 0, 0.02, 0.42, 0.09, 0.1, 0.22);
+      flashPos = [0, 0.02, -0.56];
+    }
 
-    const flash = part(flashMat, 0, 0.02, -0.56, 0.16, 0.16, 0.16);
+    const flash = part(flashMat, flashPos[0], flashPos[1], flashPos[2], 0.16, 0.16, 0.16);
     flash.visible = false;
     group.userData.flash = flash;
     return group;
@@ -423,10 +455,13 @@
   const GUN_RECOIL_DURATION = 0.18;
   const GUN_MUZZLE_FLASH_DURATION = 0.05;
 
-  const gunGroup = createGunModel();
-  gunGroup.position.set(GUN_BASE_POS.x, GUN_BASE_POS.y, GUN_BASE_POS.z);
-  gunGroup.rotation.y = THREE.MathUtils.degToRad(8);
-  camera.add(gunGroup);
+  const gunModels = [createGunModel(0), createGunModel(1), createGunModel(2)];
+  gunModels.forEach((g, i) => {
+    g.position.set(GUN_BASE_POS.x, GUN_BASE_POS.y, GUN_BASE_POS.z);
+    g.rotation.y = THREE.MathUtils.degToRad(8);
+    g.visible = i === currentWeapon;
+    camera.add(g);
+  });
 
   let gunIdleTime = 0;
   let gunWalkTime = 0;
@@ -435,6 +470,15 @@
 
   function triggerGunFire() {
     gunRecoilTimer = GUN_RECOIL_DURATION;
+  }
+
+  function selectWeapon(idx) {
+    if (idx === currentWeapon || idx < 0 || idx >= WEAPONS.length) return;
+    gunModels[currentWeapon].visible = false;
+    currentWeapon = idx;
+    gunModels[currentWeapon].visible = true;
+    updateWeaponHud();
+    if (connected) ws.send(JSON.stringify({ type: "weapon", id: idx }));
   }
 
   function updateGunModel(dt, moving) {
@@ -449,14 +493,15 @@
     const walkBobY = Math.abs(Math.sin(gunWalkTime)) * 0.018 * gunMovingFactor;
     const recoilT = gunRecoilTimer / GUN_RECOIL_DURATION;
 
-    gunGroup.position.set(
+    const activeGun = gunModels[currentWeapon];
+    activeGun.position.set(
       GUN_BASE_POS.x + idleSwayX + walkBobX,
       GUN_BASE_POS.y + idleSwayY + walkBobY,
       GUN_BASE_POS.z + recoilT * 0.12
     );
-    gunGroup.rotation.y = THREE.MathUtils.degToRad(8);
-    gunGroup.rotation.x = -THREE.MathUtils.degToRad(recoilT * 10);
-    gunGroup.userData.flash.visible = gunRecoilTimer > GUN_RECOIL_DURATION - GUN_MUZZLE_FLASH_DURATION;
+    activeGun.rotation.y = THREE.MathUtils.degToRad(8);
+    activeGun.rotation.x = -THREE.MathUtils.degToRad(recoilT * 10);
+    activeGun.userData.flash.visible = gunRecoilTimer > GUN_RECOIL_DURATION - GUN_MUZZLE_FLASH_DURATION;
   }
 
   // ================================================================
@@ -468,6 +513,9 @@
   let killLimit = 10;
   let myKills = 0;
   let connected = false;
+
+  const MAX_HP = 100;
+  let myHp = MAX_HP;
 
   function wsUrl() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -549,10 +597,20 @@
         rp.targetYaw = -msg.yaw;
         break;
       }
-      case "hit": {
+      case "damage": {
+        // Fires on every landed hit, fatal or not -- the shooter always gets
+        // a hit marker/tick (matches the CoD-style feedback), independent of
+        // whether it happened to be the killing blow.
+        if (msg.shooterId === myId) triggerHitFeedback();
+        if (msg.victimId === myId) {
+          myHp = msg.victimHp;
+          updateHealthHud();
+        }
+        break;
+      }
+      case "kill": {
         if (msg.shooterId === myId) {
           myKills = msg.shooterKills;
-          triggerHitFeedback();
         } else {
           const shooter = remotePlayers.get(msg.shooterId);
           if (shooter) shooter.kills = msg.shooterKills;
@@ -568,6 +626,8 @@
       }
       case "respawn": {
         if (msg.id === myId) {
+          myHp = msg.hp || MAX_HP;
+          updateHealthHud();
           clearLocalDeath(msg.pos);
         } else {
           const rp = remotePlayers.get(msg.id);
@@ -616,7 +676,14 @@
   const canvas = renderer.domElement;
 
   const keys = Object.create(null);
-  window.addEventListener("keydown", (e) => { keys[e.code] = true; });
+  window.addEventListener("keydown", (e) => {
+    keys[e.code] = true;
+    if (isLocked()) {
+      if (e.code === "Digit1") selectWeapon(0);
+      else if (e.code === "Digit2") selectWeapon(1);
+      else if (e.code === "Digit3") selectWeapon(2);
+    }
+  });
   window.addEventListener("keyup", (e) => { keys[e.code] = false; });
 
   let yaw = -Math.PI / 2;
@@ -675,6 +742,10 @@
   let score = 0;
 
   function shoot() {
+    const now = performance.now();
+    if (now - lastShotTime < WEAPONS[currentWeapon].cooldown) return;
+    lastShotTime = now;
+
     triggerGunFire();
 
     const forward = getForward();
@@ -777,6 +848,10 @@
   const playerCountEl = document.getElementById("playerCount");
   const scoreboardEl = document.getElementById("scoreboard");
   const statusEl = document.getElementById("status");
+  const healthEl = document.getElementById("health");
+  const healthBarEl = document.getElementById("healthBar");
+  const weaponNameEl = document.getElementById("weaponName");
+  const weaponDamageEl = document.getElementById("weaponDamage");
 
   function setStatus(text) {
     statusEl.textContent = text;
@@ -792,6 +867,21 @@
     rows.sort((a, b) => b.kills - a.kills);
     scoreboardEl.innerHTML = rows.map((r) => `<div>${r.name}: ${r.kills}</div>`).join("");
   }
+
+  function updateHealthHud() {
+    const hp = Math.max(0, myHp);
+    healthEl.textContent = String(hp);
+    healthBarEl.style.width = `${(hp / MAX_HP) * 100}%`;
+    healthBarEl.style.background = hp > 50 ? "#5ec25e" : hp > 25 ? "#e0b93c" : "#d4433c";
+  }
+
+  function updateWeaponHud() {
+    const w = WEAPONS[currentWeapon];
+    weaponNameEl.textContent = w.name;
+    weaponDamageEl.textContent = String(w.damage);
+  }
+  updateWeaponHud();
+  updateHealthHud();
 
   // ================================================================
   // Game loop
