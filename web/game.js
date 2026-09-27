@@ -356,10 +356,14 @@
     return MIN_WEAPON_DAMAGE + Math.floor(Math.random() * (MAX_WEAPON_DAMAGE - MIN_WEAPON_DAMAGE + 1));
   }
 
-  for (let i = 0; i < TARGET_COUNT; i++) {
-    const mesh = addBox(randomArenaPosition(1 + Math.random() * 3.5), [TARGET_SIZE, TARGET_SIZE, TARGET_SIZE], 0xffffff, hazardTexture, 1.2);
-    const maxHp = randomTargetHp();
-    targets.push({ mesh, hp: maxHp, maxHp, flashUntil: 0 });
+  // Only spawned in Aim Training mode -- PvP is pure player-vs-player, no
+  // practice blocks cluttering the arena. See the mode-select wiring below.
+  function createPracticeTargets() {
+    for (let i = 0; i < TARGET_COUNT; i++) {
+      const mesh = addBox(randomArenaPosition(1 + Math.random() * 3.5), [TARGET_SIZE, TARGET_SIZE, TARGET_SIZE], 0xffffff, hazardTexture, 1.2);
+      const maxHp = randomTargetHp();
+      targets.push({ mesh, hp: maxHp, maxHp, flashUntil: 0 });
+    }
   }
 
   // ================================================================
@@ -727,9 +731,34 @@
   // Input: pointer-lock mouse look + WASD fly movement
   // ================================================================
   const overlay = document.getElementById("overlay");
+  const modeSelect = document.getElementById("modeSelect");
+  const pvpSetup = document.getElementById("pvpSetup");
+  const trainingSetup = document.getElementById("trainingSetup");
   const startBtn = document.getElementById("startBtn");
+  const startTrainingBtn = document.getElementById("startTrainingBtn");
   const playerNameInput = document.getElementById("nameInput");
   const canvas = renderer.domElement;
+
+  let gameMode = null; // "pvp" | "training"
+
+  document.getElementById("pvpModeBtn").addEventListener("click", () => {
+    modeSelect.hidden = true;
+    pvpSetup.hidden = false;
+  });
+  document.getElementById("trainingModeBtn").addEventListener("click", () => {
+    modeSelect.hidden = true;
+    trainingSetup.hidden = false;
+  });
+  document.getElementById("backFromPvp").addEventListener("click", (e) => {
+    e.preventDefault();
+    pvpSetup.hidden = true;
+    modeSelect.hidden = false;
+  });
+  document.getElementById("backFromTraining").addEventListener("click", (e) => {
+    e.preventDefault();
+    trainingSetup.hidden = true;
+    modeSelect.hidden = false;
+  });
 
   const keys = Object.create(null);
   window.addEventListener("keydown", (e) => {
@@ -765,8 +794,24 @@
   startBtn.addEventListener("click", () => {
     if (!started) {
       started = true;
+      gameMode = "pvp";
       const name = (playerNameInput.value || "").trim() || `Player${Math.floor(Math.random() * 1000)}`;
       connect(name);
+      document.getElementById("hud").hidden = false;
+      document.getElementById("healthPanel").hidden = false;
+      if (audioCtx.state === "suspended") audioCtx.resume();
+    }
+    canvas.requestPointerLock();
+  });
+
+  startTrainingBtn.addEventListener("click", () => {
+    if (!started) {
+      started = true;
+      gameMode = "training";
+      // No connect() call at all -- Aim Training never opens a WebSocket,
+      // so there is no way for another player to ever appear here.
+      createPracticeTargets();
+      document.getElementById("trainingHud").hidden = false;
       if (audioCtx.state === "suspended") audioCtx.resume();
     }
     canvas.requestPointerLock();

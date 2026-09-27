@@ -15,7 +15,7 @@
   }
   canvas { display: block; }
 
-  #hud {
+  #hud, #trainingHud {
     position: fixed;
     top: 16px;
     left: 16px;
@@ -27,7 +27,6 @@
     user-select: none;
     line-height: 1.5;
   }
-  #hud .practice { opacity: 0.75; font-size: 14px; }
 
   #scoreboard {
     position: fixed;
@@ -221,21 +220,41 @@
   }
   #startBtn:hover { background: #f2d15c; }
 
+  .modeBtn {
+    margin-top: 10px;
+    padding: 12px 30px;
+    font-size: 17px;
+    font-weight: 700;
+    border-radius: 6px;
+    border: none;
+    background: #e6c34a;
+    color: #1a1400;
+    cursor: pointer;
+    display: block;
+    width: 260px;
+  }
+  .modeBtn:hover { background: #f2d15c; }
+  .modeBtn .sub { display: block; font-size: 12px; font-weight: 400; opacity: 0.75; margin-top: 2px; }
+
+  #overlay a { color: #cfe8ff; }
+
   [hidden] { display: none !important; }
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
 
-<div id="hud">
+<div id="hud" hidden>
   Kills: <span id="kills">0</span> / <span id="killLimit">10</span>
   &nbsp;•&nbsp; Players: <span id="playerCount">1</span>
-  <div class="practice">Practice score: <span id="score">0</span></div>
+</div>
+<div id="trainingHud" hidden>
+  Practice score: <span id="score">0</span>
 </div>
 <div id="scoreboard"></div>
 <div id="status"></div>
 
-<div id="healthPanel">
+<div id="healthPanel" hidden>
   <div>Health: <span id="health">100</span>/100</div>
   <div id="healthBarTrack"><div id="healthBar"></div></div>
 </div>
@@ -253,12 +272,29 @@
 <div id="matchBanner"></div>
 
 <div id="overlay">
-  <h1>Java FPS Shooter — PvP</h1>
-  <p><strong>W A S D</strong> move &nbsp;•&nbsp; <strong>Mouse</strong> look &nbsp;•&nbsp; <strong>Space</strong> jump</p>
-  <p><strong>Click</strong> to shoot &nbsp;•&nbsp; first to <strong>10 kills</strong> wins the lobby</p>
-  <input id="nameInput" type="text" maxlength="16" placeholder="Your name" />
-  <button id="startBtn">Click to Play</button>
-  <div class="hint">Red cubes are practice targets — other players are the real fight.</div>
+  <div id="modeSelect">
+    <h1>Java FPS Shooter</h1>
+    <p>Choose a mode</p>
+    <button class="modeBtn" id="pvpModeBtn">PvP Deathmatch<span class="sub">Fight other players online — first to 10 kills wins</span></button>
+    <button class="modeBtn" id="trainingModeBtn">Aim Training<span class="sub">Private solo practice arena — no one else can join</span></button>
+  </div>
+
+  <div id="pvpSetup" hidden>
+    <h1>PvP Deathmatch</h1>
+    <p><strong>W A S D</strong> move &nbsp;•&nbsp; <strong>Mouse</strong> look &nbsp;•&nbsp; <strong>Space</strong> jump</p>
+    <p><strong>Click</strong> to shoot &nbsp;•&nbsp; first to <strong>10 kills</strong> wins the lobby</p>
+    <input id="nameInput" type="text" maxlength="16" placeholder="Your name" />
+    <button id="startBtn">Click to Play</button>
+    <div class="hint"><a href="#" id="backFromPvp">&larr; choose a different mode</a></div>
+  </div>
+
+  <div id="trainingSetup" hidden>
+    <h1>Aim Training</h1>
+    <p><strong>W A S D</strong> move &nbsp;•&nbsp; <strong>Mouse</strong> look &nbsp;•&nbsp; <strong>Space</strong> jump</p>
+    <p><strong>Click</strong> to shoot the target blocks &nbsp;•&nbsp; private — no other players here</p>
+    <button id="startTrainingBtn">Click to Play</button>
+    <div class="hint"><a href="#" id="backFromTraining">&larr; choose a different mode</a></div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
