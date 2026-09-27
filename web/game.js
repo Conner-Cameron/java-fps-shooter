@@ -749,16 +749,6 @@
     modeSelect.hidden = true;
     trainingSetup.hidden = false;
   });
-  document.getElementById("backFromPvp").addEventListener("click", (e) => {
-    e.preventDefault();
-    pvpSetup.hidden = true;
-    modeSelect.hidden = false;
-  });
-  document.getElementById("backFromTraining").addEventListener("click", (e) => {
-    e.preventDefault();
-    trainingSetup.hidden = true;
-    modeSelect.hidden = false;
-  });
 
   const keys = Object.create(null);
   window.addEventListener("keydown", (e) => {
