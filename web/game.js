@@ -13,7 +13,8 @@
   scene.background = new THREE.Color(0xb8d4dc);
   scene.fog = new THREE.Fog(0xb8d4dc, 20, 95);
 
-  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
+  const BASE_FOV = 70;
+  const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 200);
   camera.position.set(0, 1.7, 8);
   scene.add(camera); // needed so the view-model gun (parented to the camera below) gets rendered
 
@@ -35,11 +36,20 @@
   // view feels, never the actual outcome of a shot. Declared up here
   // (rather than down by the gun-model code) because the practice-target
   // HP range below is derived from it.
+  // adsFov: camera FOV while aiming (lower = more zoom); adsSpeed: how fast
+  // the zoom transitions in/out; adsMoveMult: movement speed while aiming
+  // (aiming steadies your shot at the cost of mobility, standard FPS
+  // convention); scope: true gives the full circular scope overlay
+  // treatment instead of just a tighter FOV/repositioned gun model.
   const WEAPONS = [
-    { name: "Pistol", damage: 20, cooldown: 150, magSize: 8, reloadMs: 1000 },
-    { name: "Rifle", damage: 34, cooldown: 300, magSize: 24, reloadMs: 1600 },
-    { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200 },
-    { name: "SMG", damage: 14, cooldown: 100, magSize: 20, reloadMs: 1300, automatic: true }
+    { name: "Pistol", damage: 20, cooldown: 150, magSize: 8, reloadMs: 1000,
+      adsFov: 55, adsSpeed: 12, adsMoveMult: 0.8 },
+    { name: "Rifle", damage: 34, cooldown: 300, magSize: 24, reloadMs: 1600,
+      adsFov: 45, adsSpeed: 9, adsMoveMult: 0.7 },
+    { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200,
+      adsFov: 15, adsSpeed: 6, adsMoveMult: 0.35, scope: true },
+    { name: "SMG", damage: 14, cooldown: 100, magSize: 20, reloadMs: 1300, automatic: true,
+      adsFov: 58, adsSpeed: 14, adsMoveMult: 0.85 }
   ];
 
   // ================================================================
@@ -649,6 +659,7 @@
   function requestReload() {
     if (reloading || ammo[currentWeapon] >= WEAPONS[currentWeapon].magSize) return;
     reloading = true;
+    aiming = false; // lower the weapon to reload, same as most FPS games
     reloadEndTime = performance.now() + WEAPONS[currentWeapon].reloadMs;
     updateAmmoHud();
     if (connected) ws.send(JSON.stringify({ type: "reload" }));
@@ -709,6 +720,7 @@
   }
 
   const GUN_BASE_POS = { x: 0.32, y: -0.32, z: -0.6 };
+  const ADS_GUN_POS = { x: 0.02, y: -0.16, z: -0.45 }; // raised toward center when aiming
   const GUN_RECOIL_DURATION = 0.18;
   const GUN_MUZZLE_FLASH_DURATION = 0.05;
 
@@ -735,32 +747,46 @@
     currentWeapon = idx;
     gunModels[currentWeapon].visible = true;
     reloading = false; // switching holsters any in-progress reload, same as the server
+    aiming = false; // re-raise and re-aim fresh each time you switch weapons
     updateWeaponHud();
     updateAmmoHud();
     if (connected) ws.send(JSON.stringify({ type: "weapon", id: idx }));
   }
 
-  function updateGunModel(dt, moving) {
+  function updateGunModel(dt, moving, adsBlendAmount) {
     gunIdleTime += dt;
     gunMovingFactor += ((moving ? 1 : 0) - gunMovingFactor) * Math.min(1, dt * 8);
     if (moving) gunWalkTime += dt * 9;
     if (gunRecoilTimer > 0) gunRecoilTimer = Math.max(0, gunRecoilTimer - dt);
 
-    const idleSwayX = Math.sin(gunIdleTime * 0.6) * 0.012;
-    const idleSwayY = Math.sin(gunIdleTime * 1.1) * 0.008;
-    const walkBobX = Math.sin(gunWalkTime) * 0.02 * gunMovingFactor;
-    const walkBobY = Math.abs(Math.sin(gunWalkTime)) * 0.018 * gunMovingFactor;
+    // Idle sway and walk bob fade out while aiming -- steadying your aim
+    // is the whole point of ADS.
+    const steadiness = 1 - adsBlendAmount;
+    const idleSwayX = Math.sin(gunIdleTime * 0.6) * 0.012 * steadiness;
+    const idleSwayY = Math.sin(gunIdleTime * 1.1) * 0.008 * steadiness;
+    const walkBobX = Math.sin(gunWalkTime) * 0.02 * gunMovingFactor * steadiness;
+    const walkBobY = Math.abs(Math.sin(gunWalkTime)) * 0.018 * gunMovingFactor * steadiness;
     const recoilT = gunRecoilTimer / GUN_RECOIL_DURATION;
+
+    const basePos = {
+      x: GUN_BASE_POS.x + (ADS_GUN_POS.x - GUN_BASE_POS.x) * adsBlendAmount,
+      y: GUN_BASE_POS.y + (ADS_GUN_POS.y - GUN_BASE_POS.y) * adsBlendAmount,
+      z: GUN_BASE_POS.z + (ADS_GUN_POS.z - GUN_BASE_POS.z) * adsBlendAmount
+    };
 
     const activeGun = gunModels[currentWeapon];
     activeGun.position.set(
-      GUN_BASE_POS.x + idleSwayX + walkBobX,
-      GUN_BASE_POS.y + idleSwayY + walkBobY,
-      GUN_BASE_POS.z + recoilT * 0.12
+      basePos.x + idleSwayX + walkBobX,
+      basePos.y + idleSwayY + walkBobY,
+      basePos.z + recoilT * 0.12
     );
-    activeGun.rotation.y = THREE.MathUtils.degToRad(8);
+    activeGun.rotation.y = THREE.MathUtils.degToRad(8) * steadiness;
     activeGun.rotation.x = -THREE.MathUtils.degToRad(recoilT * 10);
     activeGun.userData.flash.visible = gunRecoilTimer > GUN_RECOIL_DURATION - GUN_MUZZLE_FLASH_DURATION;
+
+    // A real scope shows the view through the tube, not the gun's body --
+    // hide the model once mostly zoomed into the sniper's scope.
+    activeGun.visible = !(WEAPONS[currentWeapon].scope && adsBlendAmount > 0.5);
   }
 
   // ================================================================
@@ -1125,13 +1151,21 @@
 
   document.addEventListener("pointerlockchange", () => {
     overlay.hidden = isLocked();
-    if (!isLocked()) mouseHeld = false;
+    if (!isLocked()) {
+      mouseHeld = false;
+      aiming = false;
+    }
   });
 
   document.addEventListener("mousemove", (e) => {
     if (!isLocked()) return;
-    yaw += e.movementX * MOUSE_SENSITIVITY;
-    pitch -= e.movementY * MOUSE_SENSITIVITY;
+    // Mouse sensitivity scales down with the current (possibly mid-zoom)
+    // FOV, so the same physical mouse movement always turns the camera by
+    // the same on-screen angle regardless of zoom level -- without this,
+    // the sniper's scope would feel wildly twitchy at 4-5x zoom.
+    const sensScale = camera.fov / BASE_FOV;
+    yaw += e.movementX * MOUSE_SENSITIVITY * sensScale;
+    pitch -= e.movementY * MOUSE_SENSITIVITY * sensScale;
     const limit = Math.PI / 2 - 0.01;
     pitch = Math.max(-limit, Math.min(limit, pitch));
   });
@@ -1145,13 +1179,25 @@
   }
 
   let mouseHeld = false;
+  let aiming = false;
+  let adsBlend = 0; // 0 = hip-fire, 1 = fully aimed -- smoothed each frame in tick()
+
+  // Right-click would otherwise open the browser's context menu, which
+  // would both break aiming and leave pointer lock in a weird state.
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
   canvas.addEventListener("mousedown", (e) => {
-    if (!isLocked() || e.button !== 0 || isDead) return;
-    mouseHeld = true;
-    shoot();
+    if (!isLocked() || isDead) return;
+    if (e.button === 0) {
+      mouseHeld = true;
+      shoot();
+    } else if (e.button === 2) {
+      aiming = true;
+    }
   });
   window.addEventListener("mouseup", (e) => {
     if (e.button === 0) mouseHeld = false;
+    else if (e.button === 2) aiming = false;
   });
 
   // ================================================================
@@ -1233,6 +1279,8 @@
   // Hit marker + tick sound (matches the desktop build's MW2-style feel)
   // ================================================================
   const hitMarkerEl = document.getElementById("hitmarker");
+  const crosshairEl = document.getElementById("crosshair");
+  const scopeOverlayEl = document.getElementById("scopeOverlay");
   let hitMarkerTimeout = null;
 
   function triggerHitFeedback() {
@@ -1274,6 +1322,7 @@
 
   function triggerLocalDeath() {
     isDead = true;
+    aiming = false;
     deathOverlay.classList.add("show");
   }
 
@@ -1409,7 +1458,9 @@
       if (flatForward.lengthSq() > 0.0001) flatForward.normalize();
       const right = new THREE.Vector3().crossVectors(flatForward, new THREE.Vector3(0, 1, 0));
 
-      const velocity = MOVE_SPEED * dt;
+      const adsMoveMult = (aiming && WEAPONS[currentWeapon].adsMoveMult != null)
+        ? WEAPONS[currentWeapon].adsMoveMult : 1;
+      const velocity = MOVE_SPEED * adsMoveMult * dt;
       moving = keys["KeyW"] || keys["KeyS"] || keys["KeyD"] || keys["KeyA"];
 
       let moveX = 0, moveZ = 0;
@@ -1476,7 +1527,26 @@
       );
     }
 
-    updateGunModel(dt, moving);
+    // Smoothly zoom the camera toward the equipped weapon's ADS FOV while
+    // aiming (and back to normal when not) -- each weapon transitions at
+    // its own speed via adsSpeed, so a pistol snaps up quick while the
+    // sniper's scope raise feels a bit more deliberate.
+    const activeWeapon = WEAPONS[currentWeapon];
+    const targetFov = (aiming && isLocked() && !isDead) ? activeWeapon.adsFov : BASE_FOV;
+    camera.fov += (targetFov - camera.fov) * Math.min(1, dt * (activeWeapon.adsSpeed || 10));
+    camera.updateProjectionMatrix();
+
+    const targetAdsBlend = (aiming && isLocked() && !isDead) ? 1 : 0;
+    adsBlend += (targetAdsBlend - adsBlend) * Math.min(1, dt * (activeWeapon.adsSpeed || 10));
+
+    // The sniper's circular scope overlay only kicks in once mostly zoomed
+    // in -- fully hides the regular crosshair while any weapon is aimed,
+    // matching how ADS/iron-sights normally replace the floating reticle.
+    const scopedIn = activeWeapon.scope && adsBlend > 0.85;
+    scopeOverlayEl.classList.toggle("show", scopedIn);
+    crosshairEl.classList.toggle("hidden", aiming);
+
+    updateGunModel(dt, moving, adsBlend);
     sendStateIfDue(now);
 
     for (const rp of remotePlayers.values()) {
