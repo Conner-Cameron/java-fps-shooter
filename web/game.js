@@ -732,32 +732,38 @@
   const GUN_RECOIL_DURATION = 0.18;
   const GUN_MUZZLE_FLASH_DURATION = 0.05;
 
-  // Pistol texture: loaded from a real reference photo (web/assets/
-  // pistol_reference.png) instead of the procedural metal used by the
-  // other three weapons. TextureLoader is async, but gunModels[0] below
-  // is built synchronously, so the canvases start out flat-filled with
-  // a fallback tint and get repainted in place once the image arrives.
-  const pistolMetalTexture = makeCanvasTexture(256, (ctx, size) => {
-    ctx.fillStyle = "#6b6f78";
-    ctx.fillRect(0, 0, size, size);
-  });
-  const pistolAccentTexture = makeCanvasTexture(256, (ctx, size) => {
-    ctx.fillStyle = "#17181a";
-    ctx.fillRect(0, 0, size, size);
-  });
-  const pistolMats = {
-    metalMat: new THREE.MeshLambertMaterial({ color: 0xffffff, map: pistolMetalTexture }),
-    accentMat: new THREE.MeshLambertMaterial({ color: 0xffffff, map: pistolAccentTexture })
-  };
-  new THREE.TextureLoader().load("assets/pistol_reference.png", (loaded) => {
-    const src = loaded.image;
-    pistolMetalTexture.image.getContext("2d").drawImage(src, 550, 90, 300, 300, 0, 0, 256, 256);
-    pistolMetalTexture.needsUpdate = true;
-    pistolAccentTexture.image.getContext("2d").drawImage(src, 740, 350, 180, 180, 0, 0, 256, 256);
-    pistolAccentTexture.needsUpdate = true;
-  });
+  // Weapon photo textures: loaded from real reference photos (web/assets/
+  // *_reference.png) instead of the procedural metal used by the other
+  // weapons. TextureLoader is async, but the gun models below are built
+  // synchronously, so each canvas starts out flat-filled with a fallback
+  // tint and gets repainted in place (two cropped regions -- one for the
+  // metal parts, one for the accent parts) once its image arrives.
+  function makeWeaponPhotoMats(imagePath, metalCrop, accentCrop) {
+    const metalTex = makeCanvasTexture(256, (ctx, size) => {
+      ctx.fillStyle = "#6b6f78";
+      ctx.fillRect(0, 0, size, size);
+    });
+    const accentTex = makeCanvasTexture(256, (ctx, size) => {
+      ctx.fillStyle = "#17181a";
+      ctx.fillRect(0, 0, size, size);
+    });
+    new THREE.TextureLoader().load(imagePath, (loaded) => {
+      const src = loaded.image;
+      metalTex.image.getContext("2d").drawImage(src, ...metalCrop, 0, 0, 256, 256);
+      metalTex.needsUpdate = true;
+      accentTex.image.getContext("2d").drawImage(src, ...accentCrop, 0, 0, 256, 256);
+      accentTex.needsUpdate = true;
+    });
+    return {
+      metalMat: new THREE.MeshLambertMaterial({ color: 0xffffff, map: metalTex }),
+      accentMat: new THREE.MeshLambertMaterial({ color: 0xffffff, map: accentTex })
+    };
+  }
 
-  const gunModels = [createGunModel(0, pistolMats), createGunModel(1), createGunModel(2), createGunModel(3)];
+  const pistolMats = makeWeaponPhotoMats("assets/pistol_reference.png", [550, 90, 300, 300], [740, 350, 180, 180]);
+  const sniperMats = makeWeaponPhotoMats("assets/sniper_reference.png", [640, 75, 220, 220], [100, 400, 220, 220]);
+
+  const gunModels = [createGunModel(0, pistolMats), createGunModel(1), createGunModel(2, sniperMats), createGunModel(3)];
   gunModels.forEach((g, i) => {
     g.position.set(GUN_BASE_POS.x, GUN_BASE_POS.y, GUN_BASE_POS.z);
     g.rotation.y = THREE.MathUtils.degToRad(8);
