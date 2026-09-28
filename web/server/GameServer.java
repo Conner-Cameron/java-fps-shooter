@@ -43,43 +43,160 @@ public class GameServer {
     private static final double MIN_SPAWN_DISTANCE = 12.0; // don't spawn this close to any alive player
     private static final int SPAWN_ATTEMPTS = 20;
 
-    // Static geometry that blocks bullets, mirroring the solid ground/walls/
-    // trees/rocks built in game.js (kept in sync by hand -- the multi-floor
-    // building at x=24 is a separate structure east of this cluster and
-    // isn't covered here yet). Each entry is {minX,minY,minZ,maxX,maxY,maxZ}.
-    private static final double[][] OBSTACLES = buildObstacles();
+    // ---------------------------------------------------------- shared map
+    // Loaded once at startup from web/map.json -- the very same file the
+    // browser client builds its world from, so walls/building/ramps/trees/
+    // rocks are defined in exactly one place. Used for bullet blocking,
+    // spawn safety, and movement validation.
 
-    private static double[][] buildObstacles() {
-        List<double[]> boxes = new ArrayList<>();
-        boxes.add(centeredBox(0, -0.5, 0, 60, 1, 60)); // ground
-        boxes.add(centeredBox(-6, 1.5, -5, 2, 3, 2));
-        boxes.add(centeredBox(6, 1.5, -8, 2, 3, 2));
-        boxes.add(centeredBox(0, 1.5, -14, 8, 3, 1));
-        boxes.add(centeredBox(-11, 1.5, -18, 2, 3, 2));
-        boxes.add(centeredBox(11, 1.5, -18, 2, 3, 2));
+    /** Axis-aligned static geometry. Trees/rocks are bullet-only (not walk-solid), same as the client. */
+    static final class Solid {
+        final double[] min, max;
+        // Slightly shrunk copy used by movement validation: a legit player
+        // can stand ON a surface or press against a face (never inside), so
+        // only a path that reaches into this inner box counts as walking
+        // through the solid. Thin panels (0.3-thick walls, glass) shrink by
+        // proportionally less so they can still be crossed-detected.
+        final double[] smin, smax;
+        final boolean blocksBullets, walkSolid;
 
-        double[][] trees = {{-16, -3}, {16, -4}, {-14, -10}, {14, -11}, {-3, -22}, {3, -23},
-                {-17, -20}, {17, -21}, {-8, -26}, {8, -27}};
-        for (double[] t : trees) boxes.add(centeredBox(t[0], 1.8, t[1], 1.6, 3.6, 1.6));
-
-        double[][] rocks = {{-4, -2, 1}, {4, -3, 0.8}, {-9, -12, 1.2}, {9, -13, 0.9},
-                {-2, -17, 0.7}, {2, -18, 1.1}, {-13, -24, 1}, {13, -25, 0.85}};
-        for (double[] r : rocks) {
-            double scale = r[2];
-            boxes.add(centeredBox(r[0], 0.3 * scale, r[1], 1.2 * scale, 1.2 * scale, 1.2 * scale));
+        Solid(double cx, double cy, double cz, double sx, double sy, double sz, boolean blocksBullets, boolean walkSolid) {
+            this.min = new double[]{cx - sx / 2, cy - sy / 2, cz - sz / 2};
+            this.max = new double[]{cx + sx / 2, cy + sy / 2, cz + sz / 2};
+            double m = Math.min(0.25, 0.5 * Math.min(sx, Math.min(sy, sz)) / 2);
+            this.smin = new double[]{min[0] + m, min[1] + m, min[2] + m};
+            this.smax = new double[]{max[0] - m, max[1] - m, max[2] - m};
+            this.blocksBullets = blocksBullets;
+            this.walkSolid = walkSolid;
         }
-
-        return boxes.toArray(new double[0][]);
     }
 
-    private static double[] centeredBox(double cx, double cy, double cz, double sx, double sy, double sz) {
-        return new double[]{cx - sx / 2, cy - sy / 2, cz - sz / 2, cx + sx / 2, cy + sy / 2, cz + sz / 2};
+    /**
+     * A sloped ramp segment, i.e. a box oriented exactly like the client's
+     * mesh.lookAt(start): local +Z runs from the segment's midpoint toward
+     * `a`, local X = up x Z, local Y = Z x X.
+     */
+    static final class Ramp {
+        final double[] c = new double[3];
+        final double[][] axes = new double[3][]; // local X, Y, Z in world space
+        final double[] half = new double[3];     // half-extents along local X, Y, Z
+
+        Ramp(double[] a, double[] b, double width, double thickness) {
+            for (int i = 0; i < 3; i++) c[i] = (a[i] + b[i]) / 2;
+            double[] z = normalize(new double[]{a[0] - c[0], a[1] - c[1], a[2] - c[2]});
+            double[] up = {0, 1, 0};
+            double[] x = cross(up, z);
+            if (length(x) < 1e-6) x = new double[]{1, 0, 0}; // ramp pointing straight up/down
+            x = normalize(x);
+            double[] y = cross(z, x);
+            axes[0] = x; axes[1] = y; axes[2] = z;
+            half[0] = width / 2;
+            half[1] = thickness / 2;
+            half[2] = Math.max(distance(a, b), 0.01) / 2;
+        }
     }
 
+    private static final List<Solid> SOLIDS = new ArrayList<>();
+    private static final List<Ramp> RAMPS = new ArrayList<>();
+
+    @SuppressWarnings("unchecked")
+    private static void loadMap(File file) throws IOException {
+        Map<String, Object> map = Json.parseObject(Files.readString(file.toPath()));
+
+        for (Object o : (List<Object>) map.get("boxes")) {
+            Map<String, Object> b = (Map<String, Object>) o;
+            double[] c = toDoubleArray((List<Object>) b.get("c"));
+            double[] s = toDoubleArray((List<Object>) b.get("s"));
+            boolean bullets = !Boolean.FALSE.equals(b.get("bullets"));
+            SOLIDS.add(new Solid(c[0], c[1], c[2], s[0], s[1], s[2], bullets, true));
+        }
+        // Bounding boxes around the client's tree/rock meshes (cone + trunk, and a dodecahedron).
+        for (Object o : (List<Object>) map.get("trees")) {
+            double[] t = toDoubleArray((List<Object>) o);
+            SOLIDS.add(new Solid(t[0], 1.8, t[1], 1.6, 3.6, 1.6, true, false));
+        }
+        for (Object o : (List<Object>) map.get("rocks")) {
+            double[] r = toDoubleArray((List<Object>) o);
+            double s = r[2];
+            SOLIDS.add(new Solid(r[0], 0.3 * s, r[1], 1.2 * s, 1.2 * s, 1.2 * s, true, false));
+        }
+        for (Object o : (List<Object>) map.get("ramps")) {
+            Map<String, Object> r = (Map<String, Object>) o;
+            RAMPS.add(new Ramp(toDoubleArray((List<Object>) r.get("a")), toDoubleArray((List<Object>) r.get("b")),
+                    ((Number) r.get("w")).doubleValue(), ((Number) r.get("t")).doubleValue()));
+        }
+        System.out.println("Loaded map: " + SOLIDS.size() + " solids, " + RAMPS.size() + " ramps");
+    }
+
+    // ---- small vector helpers (plain double[3]) ----
+    private static double length(double[] v) { return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
+    private static double[] normalize(double[] v) {
+        double l = length(v);
+        return l < 1e-12 ? new double[]{0, 0, 0} : new double[]{v[0] / l, v[1] / l, v[2] / l};
+    }
+    private static double[] cross(double[] a, double[] b) {
+        return new double[]{a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+    }
+    private static double dot(double[] a, double[] b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+    private static double distance(double[] a, double[] b) {
+        double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * Slab test of the ray/segment o + t*d against the box [min,max] in
+     * whatever frame o/d/min/max are given in. Returns {tEnter, tExit}
+     * (unbounded along the line -- callers clamp), or null for no overlap.
+     * A direction component of ~0 is handled explicitly instead of
+     * dividing by it, so a ray lying exactly on a face can't produce NaNs.
+     */
+    private static double[] slab(double[] o, double[] d, double[] min, double[] max) {
+        double tmin = Double.NEGATIVE_INFINITY, tmax = Double.POSITIVE_INFINITY;
+        for (int i = 0; i < 3; i++) {
+            if (Math.abs(d[i]) < 1e-12) {
+                if (o[i] < min[i] || o[i] > max[i]) return null;
+            } else {
+                double t1 = (min[i] - o[i]) / d[i], t2 = (max[i] - o[i]) / d[i];
+                if (t1 > t2) { double t = t1; t1 = t2; t2 = t; }
+                if (t1 > tmin) tmin = t1;
+                if (t2 < tmax) tmax = t2;
+                if (tmin > tmax) return null;
+            }
+        }
+        return new double[]{tmin, tmax};
+    }
+
+    /** Distance along the ray to the first hit of an axis-aligned box, or null. */
+    private static Double rayAabb(double[] origin, double[] dir, double[] min, double[] max) {
+        double[] t = slab(origin, dir, min, max);
+        if (t == null || t[1] < 0) return null;
+        return Math.max(t[0], 0);
+    }
+
+    private static Double rayRamp(double[] origin, double[] dir, Ramp r) {
+        double[] rel = {origin[0] - r.c[0], origin[1] - r.c[1], origin[2] - r.c[2]};
+        double[] lo = new double[3], ld = new double[3], min = new double[3], max = new double[3];
+        for (int i = 0; i < 3; i++) {
+            lo[i] = dot(rel, r.axes[i]);
+            ld[i] = dot(dir, r.axes[i]);
+            min[i] = -r.half[i];
+            max[i] = r.half[i];
+        }
+        double[] t = slab(lo, ld, min, max);
+        if (t == null || t[1] < 0) return null;
+        return Math.max(t[0], 0);
+    }
+
+    /** Nearest bullet-blocking thing along the (normalized) ray: walls, building, ramps, trees, rocks, ground. */
     private static double nearestObstacleDistance(double[] origin, double[] dir) {
         double nearest = Double.MAX_VALUE;
-        for (double[] b : OBSTACLES) {
-            Double t = intersectAABBMinMax(origin, dir, b[0], b[1], b[2], b[3], b[4], b[5]);
+        for (Solid s : SOLIDS) {
+            if (!s.blocksBullets) continue;
+            Double t = rayAabb(origin, dir, s.min, s.max);
+            if (t != null && t < nearest) nearest = t;
+        }
+        for (Ramp r : RAMPS) {
+            Double t = rayRamp(origin, dir, r);
             if (t != null && t < nearest) nearest = t;
         }
         return nearest;
@@ -116,6 +233,7 @@ public class GameServer {
     public static void main(String[] args) throws IOException {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", args.length > 0 ? args[0] : "8080"));
         staticRoot = new File("web").isDirectory() ? "web" : ".";
+        loadMap(new File(staticRoot, "map.json"));
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             System.out.println("Serving " + new File(staticRoot).getAbsolutePath() + " on port " + port);
@@ -332,6 +450,12 @@ public class GameServer {
         volatile int[] ammo = fullMagazines();
         volatile boolean reloading = false;
         volatile int reloadingWeapon = -1;
+        // Movement validation state (see handleState / validateMove).
+        volatile boolean awaitingSync = true; // true until the client confirms it's at the server-assigned spot
+        long lastStateNanos = System.nanoTime();
+        double horizBudget = HORIZ_BUDGET_CAP;
+        double vertBudget = VERT_BUDGET_CAP;
+        volatile long lastCorrectionMs = 0;
 
         Player(int id, Socket socket) {
             this.id = id;
@@ -386,6 +510,7 @@ public class GameServer {
         for (int attempt = 0; attempt < SPAWN_ATTEMPTS; attempt++) {
             double x = (random.nextDouble() - 0.5) * 34;
             double z = -2 - random.nextDouble() * 26;
+            if (spawnBlocked(x, z)) continue; // never spawn inside a wall/tree/rock
 
             double minDist = Double.MAX_VALUE;
             for (Player p : players.values()) {
@@ -404,7 +529,7 @@ public class GameServer {
                 best = new double[]{x, 1.7, z};
             }
         }
-        return best != null ? best : new double[]{0, 1.7, -15};
+        return best != null ? best : new double[]{0, 1.7, 8}; // open ground
     }
 
     private static void broadcast(String json) {
@@ -426,6 +551,7 @@ public class GameServer {
         player.sendText(Json.obj(
                 "type", "welcome",
                 "id", player.id,
+                "pos", player.pos, // server-assigned spawn; the client teleports here
                 "killLimit", KILL_LIMIT,
                 "players", Json.raw("[" + String.join(",", others) + "]")));
         broadcastExcept(player.id, Json.obj("type", "playerJoined", "id", player.id, "name", player.name));
@@ -455,16 +581,7 @@ public class GameServer {
                 break;
             }
             case "state": {
-                List<Object> posList = (List<Object>) obj.get("pos");
-                if (posList != null && posList.size() == 3) {
-                    player.pos = toDoubleArray(posList);
-                }
-                Object yawObj = obj.get("yaw");
-                Object pitchObj = obj.get("pitch");
-                if (yawObj instanceof Number) player.yaw = ((Number) yawObj).doubleValue();
-                if (pitchObj instanceof Number) player.pitch = ((Number) pitchObj).doubleValue();
-                broadcastExcept(player.id, Json.obj(
-                        "type", "state", "id", player.id, "pos", player.pos, "yaw", player.yaw, "pitch", player.pitch));
+                handleState(player, obj);
                 break;
             }
             case "shoot": {
@@ -541,15 +658,17 @@ public class GameServer {
             emptiedMag = shooter.ammo[weaponIdx] <= 0;
         }
 
-        List<Object> originList = (List<Object>) obj.get("origin");
-        List<Object> dirList = (List<Object>) obj.get("dir");
-        if (originList == null || dirList == null) {
+        // The shot always starts from where the server believes the shooter
+        // is -- never from a client-claimed origin -- and the direction is
+        // re-normalized here: the range/obstacle/hit distances below are all
+        // in units of "t along dir", so an unnormalized dir (say length 100)
+        // would otherwise scale the knife's reach by 100x.
+        double[] dir = normalize(parseVec3(obj.get("dir")) != null ? parseVec3(obj.get("dir")) : new double[]{0, 0, 0});
+        if (length(dir) < 0.5) { // missing/invalid/zero direction: counts as a miss
             if (emptiedMag) startReload(shooter, weaponIdx);
             return;
         }
-
-        double[] origin = toDoubleArray(originList);
-        double[] dir = toDoubleArray(dirList);
+        double[] origin = shooter.pos.clone();
         // A wall/tree/rock in the way beats every player behind it, same as
         // the client's own raycast against the map's solid geometry.
         double obstacleDist = nearestObstacleDistance(origin, dir);
@@ -596,6 +715,7 @@ public class GameServer {
 
         scheduler.schedule(() -> {
             victim.pos = randomSpawn(victim); // excluded defensively; they're also not `alive` yet at this point anyway
+            victim.awaitingSync = true; // ignore movement reports until the client lands at the new spot
             victim.hp = MAX_HP;
             victim.alive = true;
             victim.reloading = false;
@@ -621,35 +741,128 @@ public class GameServer {
     private static final double HALF_W = 0.4, HALF_D = 0.35, BELOW_EYE = 1.6, ABOVE_EYE = 0.2;
 
     private static Double intersectAABB(double[] origin, double[] dir, double[] targetPos) {
-        return intersectAABBMinMax(origin, dir,
-                targetPos[0] - HALF_W, targetPos[1] - BELOW_EYE, targetPos[2] - HALF_D,
-                targetPos[0] + HALF_W, targetPos[1] + ABOVE_EYE, targetPos[2] + HALF_D);
+        return rayAabb(origin, dir,
+                new double[]{targetPos[0] - HALF_W, targetPos[1] - BELOW_EYE, targetPos[2] - HALF_D},
+                new double[]{targetPos[0] + HALF_W, targetPos[1] + ABOVE_EYE, targetPos[2] + HALF_D});
     }
 
-    private static Double intersectAABBMinMax(double[] origin, double[] dir,
-            double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
-        double tmin = (minX - origin[0]) / dir[0];
-        double tmax = (maxX - origin[0]) / dir[0];
-        if (tmin > tmax) { double t = tmin; tmin = tmax; tmax = t; }
+    // ------------------------------------------------- movement validation
+    // The client is trusted for *where it is* only within limits the real
+    // client can never exceed: a speed budget (refilled at max sprint speed
+    // + 50% slack for network jitter, capped so a lag spike can't bank a
+    // teleport), world bounds, and no path through solid geometry. Anything
+    // else gets the player snapped back and their state ignored until the
+    // client confirms it landed at the corrected spot (awaitingSync).
+    private static final double MAX_HORIZ_SPEED = 6.0 * 1.6 * 1.5;
+    private static final double MAX_VERT_SPEED = 30.0; // a fall from the roof tops out around 22
+    private static final double HORIZ_BUDGET_CAP = MAX_HORIZ_SPEED + 1.0;
+    private static final double VERT_BUDGET_CAP = MAX_VERT_SPEED + 2.0;
+    private static final double WORLD_HALF = 31.0; // ground is 60x60 (edge at 30)
+    private static final double WORLD_MIN_Y = -3.0, WORLD_MAX_Y = 25.0; // eye height
+    private static final double EYE_HEIGHT = 1.7;
+    private static final double SYNC_RADIUS = 3.0;
 
-        double tymin = (minY - origin[1]) / dir[1];
-        double tymax = (maxY - origin[1]) / dir[1];
-        if (tymin > tymax) { double t = tymin; tymin = tymax; tymax = t; }
+    /** Returns null if the move is plausible, otherwise a short reason. */
+    private static String validateMove(Player p, double[] to, long nowNanos) {
+        for (double v : to) if (Double.isNaN(v) || Double.isInfinite(v)) return "invalid";
+        if (Math.abs(to[0]) > WORLD_HALF || Math.abs(to[2]) > WORLD_HALF || to[1] < WORLD_MIN_Y || to[1] > WORLD_MAX_Y) {
+            return "bounds";
+        }
 
-        if (tmin > tymax || tymin > tmax) return null;
-        if (tymin > tmin) tmin = tymin;
-        if (tymax < tmax) tmax = tymax;
+        double dt = Math.min(1.0, Math.max(0, (nowNanos - p.lastStateNanos) / 1e9));
+        p.lastStateNanos = nowNanos;
+        p.horizBudget = Math.min(HORIZ_BUDGET_CAP, p.horizBudget + dt * MAX_HORIZ_SPEED);
+        p.vertBudget = Math.min(VERT_BUDGET_CAP, p.vertBudget + dt * MAX_VERT_SPEED);
 
-        double tzmin = (minZ - origin[2]) / dir[2];
-        double tzmax = (maxZ - origin[2]) / dir[2];
-        if (tzmin > tzmax) { double t = tzmin; tzmin = tzmax; tzmax = t; }
+        double dh = Math.hypot(to[0] - p.pos[0], to[2] - p.pos[2]);
+        double dv = Math.abs(to[1] - p.pos[1]);
+        if (dh > p.horizBudget) return "speed";
+        if (dv > p.vertBudget) return "vertical speed";
+        if (crossesSolid(p.pos, to)) return "solid";
 
-        if (tmin > tzmax || tzmin > tmax) return null;
-        if (tzmin > tmin) tmin = tzmin;
-
-        if (tmin < 0) return null;
-        return tmin;
+        p.horizBudget -= dh;
+        p.vertBudget -= dv;
+        return null;
     }
+
+    /** True if the straight path from -> to (at eye level and just above the feet) enters a walk-solid box. */
+    private static boolean crossesSolid(double[] from, double[] to) {
+        double[] d = {to[0] - from[0], to[1] - from[1], to[2] - from[2]};
+        if (length(d) < 1e-9) return false;
+        for (double yOff : new double[]{0, -EYE_HEIGHT + 0.05}) {
+            double[] o = {from[0], from[1] + yOff, from[2]};
+            for (Solid s : SOLIDS) {
+                if (!s.walkSolid) continue;
+                double[] t = slab(o, d, s.smin, s.smax);
+                if (t != null && t[1] >= 0 && t[0] <= 1) return true;
+            }
+        }
+        return false;
+    }
+
+    /** A spawn point must not sit inside (or hugging) anything a standing body would overlap. */
+    private static boolean spawnBlocked(double x, double z) {
+        for (Solid s : SOLIDS) {
+            if (s.max[1] < 0.3 || s.min[1] > 1.9) continue; // doesn't overlap a standing body's height
+            if (x > s.min[0] - 0.5 && x < s.max[0] + 0.5 && z > s.min[2] - 0.5 && z < s.max[2] + 0.5) return true;
+        }
+        return false;
+    }
+
+    private static double[] parseVec3(Object o) {
+        if (!(o instanceof List) || ((List<?>) o).size() != 3) return null;
+        double[] v = new double[3];
+        for (int i = 0; i < 3; i++) {
+            Object e = ((List<?>) o).get(i);
+            if (!(e instanceof Number)) return null;
+            v[i] = ((Number) e).doubleValue();
+        }
+        return v;
+    }
+
+    private static void handleState(Player p, Map<String, Object> obj) {
+        double[] to = parseVec3(obj.get("pos"));
+        if (to == null || !p.alive) return;
+        long now = System.nanoTime();
+
+        if (p.awaitingSync) {
+            // Server placed this player (join / respawn / correction); ignore
+            // whatever the client reports until it confirms it's actually there.
+            if (distance(to, p.pos) > SYNC_RADIUS) {
+                sendCorrection(p, String.format("awaiting sync (client at %.1f,%.1f,%.1f, server at %.1f,%.1f,%.1f)",
+                        to[0], to[1], to[2], p.pos[0], p.pos[1], p.pos[2]));
+                return;
+            }
+            p.awaitingSync = false;
+            p.horizBudget = HORIZ_BUDGET_CAP;
+            p.vertBudget = VERT_BUDGET_CAP;
+            p.lastStateNanos = now;
+        } else {
+            String reason = validateMove(p, to, now);
+            if (reason != null) {
+                if (reason.equals("bounds")) p.pos = randomSpawn(p); // walked/fell off the map: back to a fresh spawn
+                p.awaitingSync = true;
+                sendCorrection(p, reason);
+                return;
+            }
+        }
+
+        p.pos = to;
+        Object yawObj = obj.get("yaw");
+        Object pitchObj = obj.get("pitch");
+        if (yawObj instanceof Number) p.yaw = ((Number) yawObj).doubleValue();
+        if (pitchObj instanceof Number) p.pitch = ((Number) pitchObj).doubleValue();
+        broadcastExcept(p.id, Json.obj("type", "state", "id", p.id, "pos", p.pos, "yaw", p.yaw, "pitch", p.pitch));
+    }
+
+    private static void sendCorrection(Player p, String reason) {
+        long nowMs = System.currentTimeMillis();
+        if (nowMs - p.lastCorrectionMs < 250) return; // don't spam while the client catches up
+        p.lastCorrectionMs = nowMs;
+        System.out.println("[validate] " + p.name + " (#" + p.id + ") corrected: " + reason);
+        p.sendText(Json.obj("type", "correct", "pos", p.pos, "reason", reason));
+    }
+
 
     // ----------------------------------------------------------------- JSON
     // Hand-written since there's no JSON library dependency in this project;

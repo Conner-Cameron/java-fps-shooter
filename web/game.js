@@ -1,5 +1,15 @@
-(function () {
+(async function () {
   "use strict";
+
+  // World geometry lives in map.json (shared with the server) -- fetched
+  // first so everything below can build synchronously from it as before.
+  let MAP;
+  try {
+    MAP = await (await fetch("map.json")).json();
+  } catch (e) {
+    document.body.textContent = "Failed to load map data (map.json).";
+    throw e;
+  }
 
   // ================================================================
   // Renderer / scene / camera
@@ -323,21 +333,14 @@
     return texture;
   }
 
-  function addGround() {
-    const geo = new THREE.BoxGeometry(60, 1, 60);
+  function addGround(box) {
+    const geo = new THREE.BoxGeometry(...box.s);
     const mat = new THREE.MeshLambertMaterial({ map: makeGroundTexture() });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(0, -0.5, 0);
+    mesh.position.set(...box.c);
     scene.add(mesh);
     registerSolid(mesh);
   }
-  addGround();
-
-  registerSolid(addBox([-6, 1.5, -5], [2, 3, 2], 0x9aa0ab, metalTexture));
-  registerSolid(addBox([6, 1.5, -8], [2, 3, 2], 0x9aa0ab, metalTexture));
-  registerSolid(addBox([0, 1.5, -14], [8, 3, 1], 0x8b909c, metalTexture));
-  registerSolid(addBox([-11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture));
-  registerSolid(addBox([11, 1.5, -18], [2, 3, 2], 0x9aa0ab, metalTexture));
 
   // ---- Distant mountain ring -- breaks the "floating in a void" look ----
   function addMountains() {
@@ -396,93 +399,6 @@
     bulletBlockers.push(rock);
   }
 
-  [[-16, -3], [16, -4], [-14, -10], [14, -11], [-3, -22], [3, -23],
-   [-17, -20], [17, -21], [-8, -26], [8, -27]].forEach(([x, z]) => addTree(x, z));
-
-  [[-4, -2, 1], [4, -3, 0.8], [-9, -12, 1.2], [9, -13, 0.9],
-   [-2, -17, 0.7], [2, -18, 1.1], [-13, -24, 1], [13, -25, 0.85]]
-    .forEach(([x, z, s]) => addRock(x, z, s));
-
-  // ---- Multi-floor building overlooking the wall/tree cluster ----
-  // Placed on open grass east of the tree/rock scatter (which tops out
-  // around x=17). Its west-facing wall (facing the arena) is built from
-  // sill/lintel/mullion segments with real open gaps for windows -- not
-  // a solid wall with a decal -- so there's an actual sightline through
-  // each window down into the existing wall/tree area. It's real solid
-  // structure (walls, mullions, and even the glass all block movement),
-  // so the windows are a view, not an entrance -- the roof, reached via
-  // the spiral ramp below, is the way in.
-  function addBuilding() {
-    const originX = 24, originZ = -10;
-    const width = 8, length = 12;
-    const floors = 4, floorHeight = 3.4;
-    const sillHeight = 1.0, windowHeight = 1.8;
-    const lintelHeight = floorHeight - sillHeight - windowHeight;
-    const bays = 3, bayWidth = length / bays, mullionWidth = 0.4;
-    const windowWidth = bayWidth - mullionWidth;
-    const doorWidth = 2.4, doorHeight = 2.2;
-
-    // Floor slabs (including the roof cap) -- what the player stands on.
-    for (let f = 0; f <= floors; f++) {
-      registerSolid(addBox([originX, f * floorHeight, originZ], [width, 0.3, length], 0x9a968c, metalTexture, 3));
-    }
-
-    for (let f = 0; f < floors; f++) {
-      const floorBaseY = f * floorHeight;
-      const y = floorBaseY + floorHeight / 2;
-      // Solid east (back) and north walls
-      registerSolid(addBox([originX + width / 2 - 0.15, y, originZ], [0.3, floorHeight, length], 0xb9b6ac, metalTexture, 2));
-      registerSolid(addBox([originX, y, originZ - length / 2 + 0.15], [width, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2));
-
-      // South wall (facing the staircase): a doorway gap instead of one
-      // solid slab, so each floor is actually enterable from the ramp.
-      const southZ = originZ + length / 2 - 0.15;
-      const sideWidth = (width - doorWidth) / 2;
-      if (sideWidth > 0.05) {
-        registerSolid(addBox([originX - width / 2 + sideWidth / 2, y, southZ], [sideWidth, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2));
-        registerSolid(addBox([originX + width / 2 - sideWidth / 2, y, southZ], [sideWidth, floorHeight, 0.3], 0xb9b6ac, metalTexture, 2));
-      }
-      const headerHeight = floorHeight - doorHeight;
-      if (headerHeight > 0.05) {
-        registerSolid(addBox([originX, floorBaseY + doorHeight + headerHeight / 2, southZ], [doorWidth, headerHeight, 0.3], 0xb9b6ac, metalTexture, 2));
-      }
-
-      // West wall (facing the arena): sill + lintel run the full length,
-      // with open gaps between mullion pillars for the window bays.
-      const wx = originX - width / 2 + 0.15;
-      registerSolid(addBox([wx, floorBaseY + sillHeight / 2, originZ], [0.3, sillHeight, length], 0xb9b6ac, metalTexture, 2));
-      registerSolid(addBox([wx, floorBaseY + sillHeight + windowHeight + lintelHeight / 2, originZ], [0.3, lintelHeight, length], 0xb9b6ac, metalTexture, 2));
-
-      for (let b = 0; b <= bays; b++) {
-        const bz = originZ - length / 2 + b * bayWidth;
-        registerSolid(addBox([wx, floorBaseY + sillHeight + windowHeight / 2, bz], [0.3, windowHeight, mullionWidth], 0x2b2b2e, metalTexture, 1));
-      }
-
-      // Tinted glass in each opening -- translucent (so the arena is still
-      // visible through it), but still solid, same as a real window.
-      for (let b = 0; b < bays; b++) {
-        const bz = originZ - length / 2 + b * bayWidth + bayWidth / 2;
-        const glass = new THREE.Mesh(
-          new THREE.BoxGeometry(0.05, windowHeight, windowWidth),
-          new THREE.MeshLambertMaterial({ color: 0x8fd0e6, transparent: true, opacity: 0.28 })
-        );
-        glass.position.set(wx, floorBaseY + sillHeight + windowHeight / 2, bz);
-        scene.add(glass);
-        registerSolid(glass, false); // solid to walk into, but doesn't block gunfire -- see registerSolid's comment
-      }
-    }
-
-    return { originX, originZ, width, length, floors, floorHeight };
-  }
-  const building = addBuilding();
-
-  // ---- Spiral ramp up to the roof, so it's actually reachable on foot.
-  // A sharp-cornered switchback was tried first, but once real horizontal
-  // and ceiling collision exist (see below), sharp 90-180 degree turns
-  // create overhangs and corner-snags that block movement -- a continuous
-  // gently-curving spiral (built from many short straight segments, each
-  // turning only a few degrees) avoids sharp corners entirely, so there's
-  // always clean headroom and a continuous walkable surface.
   // General start/end ramp builder: position it at the segment's midpoint
   // and orient it with lookAt so the math works for any direction/slope
   // without hand-computing rotation angles.
@@ -511,45 +427,29 @@
     return mesh;
   }
 
-  // One full revolution per floor, starting at the angle that faces the
-  // building's south (doorway) side -- so every time the spiral completes
-  // a revolution, it's back at that same angle, exactly at the next
-  // floor's height, and a short branch can lead straight into that
-  // floor's doorway (see addBuilding's south-wall doorway gaps above).
-  function addSpiralRamp(b) {
-    const cx = b.originX;
-    const cz = b.originZ + b.length / 2 + 5.5; // clear ground south of the building
-    const radius = 3.5;
-    const rampWidth = 2.5, rampThickness = 0.3;
-    const roofY = b.floors * b.floorHeight;
-    const segmentsPerRevolution = 16;
-    const totalSegments = segmentsPerRevolution * b.floors;
-    const angleStep = (Math.PI * 2) / segmentsPerRevolution;
-    const riseStep = roofY / totalSegments;
-    const startAngle = -Math.PI / 2; // faces the building from the start
-    const doorZ = b.originZ + b.length / 2; // building's south face / doorway threshold
-
-    function pointAt(i) {
-      const angle = startAngle + i * angleStep;
-      return [cx + radius * Math.cos(angle), i * riseStep, cz + radius * Math.sin(angle)];
+  // ---- Build the world from the shared map file (web/map.json) ----
+  // The server loads this exact file for bullet blocking, spawn safety, and
+  // movement validation, so walls/building/ramps/trees/rocks only ever
+  // need to be defined once. Boxes: c = center, s = size; `glass` panes
+  // and anything with bullets:false are walk-solid but don't stop gunfire.
+  MAP.boxes.forEach((b) => {
+    if (b.kind === "ground") {
+      addGround(b);
+    } else if (b.glass) {
+      const glass = new THREE.Mesh(
+        new THREE.BoxGeometry(...b.s),
+        new THREE.MeshLambertMaterial({ color: 0x8fd0e6, transparent: true, opacity: 0.28 })
+      );
+      glass.position.set(...b.c);
+      scene.add(glass);
+      registerSolid(glass, b.bullets !== false);
+    } else {
+      registerSolid(addBox(b.c, b.s, parseInt(b.color.slice(1), 16), metalTexture, b.tile), b.bullets !== false);
     }
-
-    let prev = pointAt(0);
-    addRamp(prev, [b.originX, 0, doorZ], rampWidth, rampThickness); // ground-floor doorway
-
-    for (let i = 1; i <= totalSegments; i++) {
-      const next = pointAt(i);
-      addRamp(prev, next, rampWidth, rampThickness);
-      prev = next;
-
-      if (i % segmentsPerRevolution === 0) {
-        // Back at the building-facing angle -- branch into that floor's
-        // doorway (or, on the final revolution, onto the open roof).
-        addRamp(next, [b.originX, next[1], doorZ], rampWidth, rampThickness);
-      }
-    }
-  }
-  addSpiralRamp(building);
+  });
+  MAP.trees.forEach(([x, z]) => addTree(x, z));
+  MAP.rocks.forEach(([x, z, s]) => addRock(x, z, s));
+  MAP.ramps.forEach((r) => addRamp(r.a, r.b, r.w, r.t));
 
   const TARGET_SIZE_MIN = 0.6;
   const TARGET_SIZE_MAX = 1.2;
@@ -990,9 +890,15 @@
 
   function handleServerMessage(msg) {
     switch (msg.type) {
+      case "correct": {
+        console.warn("Server corrected position:", msg.reason);
+        if (!isDead) teleportLocalPlayer(msg.pos);
+        break;
+      }
       case "welcome": {
         myId = msg.id;
         killLimit = msg.killLimit;
+        if (msg.pos) teleportLocalPlayer(msg.pos);
         for (const p of msg.players) {
           const rp = ensureRemotePlayer(p.id, p.name);
           rp.kills = p.kills;
@@ -1716,7 +1622,19 @@
   function clearLocalDeath(pos) {
     isDead = false;
     deathOverlay.classList.remove("show");
-    if (pos) camera.position.set(pos[0], pos[1], pos[2]);
+    if (pos) teleportLocalPlayer(pos);
+    verticalVelocity = 0;
+    grounded = true;
+  }
+
+  // Server-authoritative repositioning: the server decides spawn points and
+  // snaps back any move it can't accept (speed, bounds, walking through
+  // solids), so the local player just goes where it says.
+  function teleportLocalPlayer(pos) {
+    camera.position.set(pos[0], pos[1], pos[2]);
+    lastSafeX = pos[0];
+    lastSafeY = pos[1];
+    lastSafeZ = pos[2];
     verticalVelocity = 0;
     grounded = true;
   }
