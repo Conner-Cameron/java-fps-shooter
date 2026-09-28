@@ -23,10 +23,10 @@ public final class EnemyModel {
     }
 
     public static void render(Shader sceneShader, CubeMesh cubeMesh, Texture armorTexture, Texture accentTexture,
-                               Vector3f position, float animTime) {
-        float sway = (float) Math.toRadians(Math.sin(animTime * 0.7) * 6.0);
-        float armSwing = (float) Math.toRadians(Math.sin(animTime * 2.2) * 18.0);
-        float headTurn = (float) Math.toRadians(Math.sin(animTime * 0.9) * 10.0);
+                               Vector3f position, float yaw) {
+        float sway = yaw; // remote players face where they look; no idle animation
+        float armSwing = 0f;
+        float headTurn = 0f;
 
         Matrix4f base = new Matrix4f().translate(position).rotateY(sway);
 

@@ -6,12 +6,15 @@ out vec4 FragColor;
 
 uniform sampler2D tex;
 uniform vec3 color;
+uniform float alpha;
+uniform vec3 emissive;
 uniform vec3 viewPos;
 uniform vec3 lightDir;
 uniform vec3 lightColor;
 uniform vec3 ambientColor;
 uniform vec3 fogColor;
-uniform float fogDensity;
+uniform float fogNear;
+uniform float fogFar;
 
 void main() {
     vec3 baseColor = texture(tex, vUV).rgb * color;
@@ -24,11 +27,11 @@ void main() {
     vec3 H = normalize(L + V);
     float spec = pow(max(dot(N, H), 0.0), 32.0) * 0.15;
 
-    vec3 lit = baseColor * (ambientColor + lightColor * diff) + lightColor * spec;
+    vec3 lit = baseColor * (ambientColor + lightColor * diff) + lightColor * spec + emissive;
 
     float dist = length(viewPos - vWorldPos);
-    float fogFactor = clamp(exp(-fogDensity * dist), 0.0, 1.0);
+    float fogFactor = clamp((fogFar - dist) / (fogFar - fogNear), 0.0, 1.0);
     vec3 finalColor = mix(fogColor, lit, fogFactor);
 
-    FragColor = vec4(finalColor, 1.0);
+    FragColor = vec4(finalColor, alpha);
 }

@@ -111,6 +111,28 @@
 
     <build>
         <finalName>java-fps-shooter</finalName>
+        <!-- The desktop client shares the web game's world and art: map.json and the
+             assets (reference photos, glTF weapon models) are packaged straight from web/. -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>web</directory>
+                <includes>
+                    <include>map.json</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>web/assets</directory>
+                <targetPath>assets</targetPath>
+                <includes>
+                    <include>*.png</include>
+                    <include>manifest.json</include>
+                    <include>models/*.glb</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

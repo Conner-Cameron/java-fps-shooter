@@ -16,3 +16,6 @@ out/
 # OS
 .DS_Store
 Thumbs.db
+
+# scripted self-test output
+selftest-output/

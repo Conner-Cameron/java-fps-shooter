@@ -8,7 +8,7 @@ import static org.lwjgl.opengl.GL30.*;
  * solid in the world (floor, walls, enemies, the weapon) is this same mesh
  * drawn with a different model matrix, texture and tint.
  */
-public class CubeMesh {
+public class CubeMesh implements Drawable {
     private final int vao;
     private final int vbo;
     private final int ebo;
@@ -92,6 +92,7 @@ public class CubeMesh {
         glBindVertexArray(0);
     }
 
+    @Override
     public void render() {
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
