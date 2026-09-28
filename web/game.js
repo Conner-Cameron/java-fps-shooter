@@ -69,15 +69,22 @@
   const targets = []; // local practice bots -- shootable, respawn on hit, not networked
   const collidables = []; // meshes the ground-detection raycast can land the player on (see the jump/gravity code)
   const solidBoxes = []; // precomputed Box3s for horizontal + ceiling collision against static structure
+  const bulletBlockers = []; // meshes the shoot() raycast checks first -- anything solid stops a bullet, hit or miss
 
   // Registers a static mesh as real solid structure: standable from above
-  // (via `collidables`, used by the downward ground raycast) AND blocking
+  // (via `collidables`, used by the downward ground raycast), blocking
   // horizontally / from below (via `solidBoxes`, used by the horizontal
-  // slide + ceiling checks). Moving objects (practice targets) deliberately
-  // don't go through this -- their Box3 would need recomputing every frame.
-  function registerSolid(mesh) {
+  // slide + ceiling checks), AND (unless `blocksBullets` is false) blocking
+  // gunfire via `bulletBlockers` -- the building's window glass opts out of
+  // that last part: it's still solid to walk into, but a real window pane
+  // wouldn't stop a bullet, and the whole point of the high ground is an
+  // unobstructed line of fire down through it. Moving objects (practice
+  // targets) deliberately don't go through this -- their Box3 would need
+  // recomputing every frame.
+  function registerSolid(mesh, blocksBullets = true) {
     collidables.push(mesh);
     solidBoxes.push(new THREE.Box3().setFromObject(mesh));
+    if (blocksBullets) bulletBlockers.push(mesh);
     return mesh;
   }
 
@@ -90,6 +97,7 @@
 
   function registerRamp(mesh, width, thickness, length) {
     collidables.push(mesh);
+    bulletBlockers.push(mesh);
     mesh.updateMatrixWorld(true);
     rampColliders.push({
       invMatrix: new THREE.Matrix4().copy(mesh.matrixWorld).invert(),
@@ -367,6 +375,9 @@
     group.add(leaves);
     group.position.set(x, 0, z);
     scene.add(group);
+    // Bullet-blocking only -- deliberately not registerSolid(), so trees
+    // don't also become standable/walk-collision geometry (not asked for).
+    bulletBlockers.push(group);
   }
 
   function addRock(x, z, scale) {
@@ -377,6 +388,7 @@
     rock.position.set(x, 0.3 * scale, z);
     rock.rotation.set(scale * 1.3, scale * 2.1, 0);
     scene.add(rock);
+    bulletBlockers.push(rock);
   }
 
   [[-16, -3], [16, -4], [-14, -10], [14, -11], [-3, -22], [3, -23],
@@ -451,7 +463,7 @@
         );
         glass.position.set(wx, floorBaseY + sillHeight + windowHeight / 2, bz);
         scene.add(glass);
-        registerSolid(glass);
+        registerSolid(glass, false); // solid to walk into, but doesn't block gunfire -- see registerSolid's comment
       }
     }
 
@@ -1332,8 +1344,14 @@
     const forward = applySpread(aimDir, spreadDegrees);
     raycaster.set(camera.position, forward);
 
+    // Walls, the building, ramps, trees, and rocks all block gunfire --
+    // find the nearest one along this shot's path first, then only count
+    // a target hit if it's actually closer than whatever's in the way.
+    const obstacleHits = raycaster.intersectObjects(bulletBlockers, true);
+    const obstacleDist = obstacleHits.length > 0 ? obstacleHits[0].distance : Infinity;
+
     const hits = raycaster.intersectObjects(targets.map((t) => t.mesh));
-    if (hits.length > 0) {
+    if (hits.length > 0 && hits[0].distance < obstacleDist) {
       const hitMesh = hits[0].object;
       const target = targets.find((t) => t.mesh === hitMesh);
       target.hp -= WEAPONS[currentWeapon].damage;

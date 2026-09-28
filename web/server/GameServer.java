@@ -43,6 +43,48 @@ public class GameServer {
     private static final double MIN_SPAWN_DISTANCE = 12.0; // don't spawn this close to any alive player
     private static final int SPAWN_ATTEMPTS = 20;
 
+    // Static geometry that blocks bullets, mirroring the solid ground/walls/
+    // trees/rocks built in game.js (kept in sync by hand -- the multi-floor
+    // building at x=24 is a separate structure east of this cluster and
+    // isn't covered here yet). Each entry is {minX,minY,minZ,maxX,maxY,maxZ}.
+    private static final double[][] OBSTACLES = buildObstacles();
+
+    private static double[][] buildObstacles() {
+        List<double[]> boxes = new ArrayList<>();
+        boxes.add(centeredBox(0, -0.5, 0, 60, 1, 60)); // ground
+        boxes.add(centeredBox(-6, 1.5, -5, 2, 3, 2));
+        boxes.add(centeredBox(6, 1.5, -8, 2, 3, 2));
+        boxes.add(centeredBox(0, 1.5, -14, 8, 3, 1));
+        boxes.add(centeredBox(-11, 1.5, -18, 2, 3, 2));
+        boxes.add(centeredBox(11, 1.5, -18, 2, 3, 2));
+
+        double[][] trees = {{-16, -3}, {16, -4}, {-14, -10}, {14, -11}, {-3, -22}, {3, -23},
+                {-17, -20}, {17, -21}, {-8, -26}, {8, -27}};
+        for (double[] t : trees) boxes.add(centeredBox(t[0], 1.8, t[1], 1.6, 3.6, 1.6));
+
+        double[][] rocks = {{-4, -2, 1}, {4, -3, 0.8}, {-9, -12, 1.2}, {9, -13, 0.9},
+                {-2, -17, 0.7}, {2, -18, 1.1}, {-13, -24, 1}, {13, -25, 0.85}};
+        for (double[] r : rocks) {
+            double scale = r[2];
+            boxes.add(centeredBox(r[0], 0.3 * scale, r[1], 1.2 * scale, 1.2 * scale, 1.2 * scale));
+        }
+
+        return boxes.toArray(new double[0][]);
+    }
+
+    private static double[] centeredBox(double cx, double cy, double cz, double sx, double sy, double sz) {
+        return new double[]{cx - sx / 2, cy - sy / 2, cz - sz / 2, cx + sx / 2, cy + sy / 2, cz + sz / 2};
+    }
+
+    private static double nearestObstacleDistance(double[] origin, double[] dir) {
+        double nearest = Double.MAX_VALUE;
+        for (double[] b : OBSTACLES) {
+            Double t = intersectAABBMinMax(origin, dir, b[0], b[1], b[2], b[3], b[4], b[5]);
+            if (t != null && t < nearest) nearest = t;
+        }
+        return nearest;
+    }
+
     private static final int MAX_HP = 100;
     // index: 0 = pistol, 1 = rifle, 2 = sniper, 3 = SMG (automatic -- client fires it on a timer while held)
     private static final int[] WEAPON_DAMAGE = {20, 34, 100, 14};
@@ -495,13 +537,16 @@ public class GameServer {
 
         double[] origin = toDoubleArray(originList);
         double[] dir = toDoubleArray(dirList);
+        // A wall/tree/rock in the way beats every player behind it, same as
+        // the client's own raycast against the map's solid geometry.
+        double obstacleDist = nearestObstacleDistance(origin, dir);
 
         Player closest = null;
         double closestDist = Double.MAX_VALUE;
         for (Player other : players.values()) {
             if (other.id == shooter.id || !other.alive) continue;
             Double dist = intersectAABB(origin, dir, other.pos);
-            if (dist != null && dist < closestDist) {
+            if (dist != null && dist < obstacleDist && dist < closestDist) {
                 closestDist = dist;
                 closest = other;
             }
@@ -563,23 +608,27 @@ public class GameServer {
     private static final double HALF_W = 0.4, HALF_D = 0.35, BELOW_EYE = 1.6, ABOVE_EYE = 0.2;
 
     private static Double intersectAABB(double[] origin, double[] dir, double[] targetPos) {
-        double[] min = {targetPos[0] - HALF_W, targetPos[1] - BELOW_EYE, targetPos[2] - HALF_D};
-        double[] max = {targetPos[0] + HALF_W, targetPos[1] + ABOVE_EYE, targetPos[2] + HALF_D};
+        return intersectAABBMinMax(origin, dir,
+                targetPos[0] - HALF_W, targetPos[1] - BELOW_EYE, targetPos[2] - HALF_D,
+                targetPos[0] + HALF_W, targetPos[1] + ABOVE_EYE, targetPos[2] + HALF_D);
+    }
 
-        double tmin = (min[0] - origin[0]) / dir[0];
-        double tmax = (max[0] - origin[0]) / dir[0];
+    private static Double intersectAABBMinMax(double[] origin, double[] dir,
+            double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
+        double tmin = (minX - origin[0]) / dir[0];
+        double tmax = (maxX - origin[0]) / dir[0];
         if (tmin > tmax) { double t = tmin; tmin = tmax; tmax = t; }
 
-        double tymin = (min[1] - origin[1]) / dir[1];
-        double tymax = (max[1] - origin[1]) / dir[1];
+        double tymin = (minY - origin[1]) / dir[1];
+        double tymax = (maxY - origin[1]) / dir[1];
         if (tymin > tymax) { double t = tymin; tymin = tymax; tymax = t; }
 
         if (tmin > tymax || tymin > tmax) return null;
         if (tymin > tmin) tmin = tymin;
         if (tymax < tmax) tmax = tymax;
 
-        double tzmin = (min[2] - origin[2]) / dir[2];
-        double tzmax = (max[2] - origin[2]) / dir[2];
+        double tzmin = (minZ - origin[2]) / dir[2];
+        double tzmax = (maxZ - origin[2]) / dir[2];
         if (tzmin > tzmax) { double t = tzmin; tzmin = tzmax; tzmax = t; }
 
         if (tmin > tzmax || tzmin > tmax) return null;
