@@ -1139,13 +1139,10 @@
   const keys = Object.create(null);
   window.addEventListener("keydown", (e) => {
     keys[e.code] = true;
-    if (isLocked()) {
-      if (e.code === "Digit1") selectWeapon(0);
-      else if (e.code === "Digit2") selectWeapon(1);
-      else if (e.code === "Digit3") selectWeapon(2);
-      else if (e.code === "Digit4") selectWeapon(3);
-      else if (e.code === "KeyR") requestReload();
-    }
+    // Weapon choice is locked in on the loadout screen for the rest of
+    // this life -- no in-game switching, so the only weapon-related key
+    // left once locked in is reload.
+    if (isLocked() && e.code === "KeyR") requestReload();
   });
   window.addEventListener("keyup", (e) => { keys[e.code] = false; });
 
