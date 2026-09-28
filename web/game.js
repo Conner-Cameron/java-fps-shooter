@@ -791,6 +791,56 @@
     camera.add(g);
   });
 
+  // ================================================================
+  // Loadout-screen weapon icons: a separate offscreen renderer (its own
+  // canvas is never attached to the page) shared by all four preview
+  // cards. Each icon gets its own gun-model instance built from the same
+  // materials as the real equipped guns above (createGunModel() just
+  // makes new meshes; the materials/textures -- including the loaded
+  // photo crops -- are shared objects), so a preview always matches what
+  // you'll actually be holding, texture pop-in included. Rendered once
+  // per frame, only while the loadout screen is actually visible, via
+  // renderWeaponIcons() below (called from the main tick() loop).
+  // ================================================================
+  const iconPreviewCanvas = document.createElement("canvas");
+  iconPreviewCanvas.width = 160;
+  iconPreviewCanvas.height = 120;
+  const iconPreviewRenderer = new THREE.WebGLRenderer({ canvas: iconPreviewCanvas, alpha: true, antialias: true });
+  iconPreviewRenderer.setSize(160, 120, false);
+
+  const iconPreviewScene = new THREE.Scene();
+  iconPreviewScene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const iconPreviewLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  iconPreviewLight.position.set(2, 3, 2);
+  iconPreviewScene.add(iconPreviewLight);
+
+  const iconPreviewCamera = new THREE.PerspectiveCamera(32, 160 / 120, 0.05, 10);
+  iconPreviewCamera.position.set(0.55, 0.22, 0.75);
+  iconPreviewCamera.lookAt(0, -0.02, 0);
+
+  const iconGunModels = [
+    createGunModel(0, pistolMats),
+    createGunModel(1, rifleMats),
+    createGunModel(2, sniperMats),
+    createGunModel(3, smgMats)
+  ];
+  iconGunModels.forEach((g) => { g.rotation.y = THREE.MathUtils.degToRad(20); });
+
+  const iconCanvases = [0, 1, 2, 3].map((i) => document.querySelector(`[data-weapon-icon="${i}"]`));
+  const iconCtx = iconCanvases.map((c) => c.getContext("2d"));
+
+  function renderWeaponIcons(dt) {
+    if (weaponSelect.hidden) return;
+    for (let i = 0; i < 4; i++) {
+      iconGunModels[i].rotation.y += dt * 0.4;
+      iconPreviewScene.add(iconGunModels[i]);
+      iconPreviewRenderer.render(iconPreviewScene, iconPreviewCamera);
+      iconPreviewScene.remove(iconGunModels[i]);
+      iconCtx[i].clearRect(0, 0, 160, 120);
+      iconCtx[i].drawImage(iconPreviewCanvas, 0, 0);
+    }
+  }
+
   let gunIdleTime = 0;
   let gunWalkTime = 0;
   let gunMovingFactor = 0;
@@ -1047,6 +1097,7 @@
   // ================================================================
   const overlay = document.getElementById("overlay");
   const modeSelect = document.getElementById("modeSelect");
+  const weaponSelect = document.getElementById("weaponSelect");
   const pvpSetup = document.getElementById("pvpSetup");
   const trainingSetup = document.getElementById("trainingSetup");
   const startBtn = document.getElementById("startBtn");
@@ -1055,14 +1106,34 @@
   const canvas = renderer.domElement;
 
   let gameMode = null; // "pvp" | "training"
+  let pendingGameMode = null; // which mode's setup screen to show once a loadout is picked
 
   document.getElementById("pvpModeBtn").addEventListener("click", () => {
+    pendingGameMode = "pvp";
     modeSelect.hidden = true;
-    pvpSetup.hidden = false;
+    weaponSelect.hidden = false;
   });
   document.getElementById("trainingModeBtn").addEventListener("click", () => {
+    pendingGameMode = "training";
     modeSelect.hidden = true;
-    trainingSetup.hidden = false;
+    weaponSelect.hidden = false;
+  });
+
+  // Loadout select: shown after the mode is chosen and before the setup
+  // screen (name entry / controls recap) -- picking a card equips that
+  // weapon immediately (selectWeapon() is a no-op if it's already equipped,
+  // e.g. the default rifle) and moves on to the mode's own setup screen.
+  document.querySelectorAll(".weaponCard").forEach((card) => {
+    card.addEventListener("click", () => {
+      selectWeapon(parseInt(card.dataset.weapon, 10));
+      weaponSelect.hidden = true;
+      if (pendingGameMode === "pvp") pvpSetup.hidden = false;
+      else trainingSetup.hidden = false;
+    });
+  });
+  document.querySelectorAll(".weaponCardStats").forEach((el) => {
+    const w = WEAPONS[parseInt(el.dataset.weaponStats, 10)];
+    el.textContent = `${w.damage} damage  •  ${w.magSize} rounds`;
   });
 
   const keys = Object.create(null);
@@ -1810,6 +1881,7 @@
       rp.group.rotation.y = lerpAngle(rp.group.rotation.y, rp.targetYaw, 0.25);
     }
 
+    renderWeaponIcons(dt);
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }

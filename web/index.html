@@ -309,6 +309,41 @@
   .modeBtn:hover { background: #f2d15c; }
   .modeBtn .sub { display: block; font-size: 12px; font-weight: 400; opacity: 0.75; margin-top: 2px; }
 
+  .weaponGrid {
+    display: flex;
+    gap: 14px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 900px;
+  }
+  .weaponCard {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 190px;
+    padding: 14px;
+    background: rgba(255,255,255,0.06);
+    border: 2px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: center;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .weaponCard:hover { background: rgba(255,255,255,0.12); border-color: #e6c34a; }
+  .weaponIcon {
+    width: 150px;
+    height: 112px;
+    background: rgba(0,0,0,0.35);
+    border-radius: 6px;
+    margin-bottom: 8px;
+  }
+  .weaponCardName { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+  .weaponCardStats { font-size: 12px; color: #e6c34a; margin-bottom: 6px; }
+  .weaponCardDesc { font-size: 12px; opacity: 0.8; line-height: 1.35; min-height: 48px; }
+
   #overlay a { color: #cfe8ff; }
 
   [hidden] { display: none !important; }
@@ -365,6 +400,37 @@
     <p>Choose a mode</p>
     <button class="modeBtn" id="pvpModeBtn">PvP Deathmatch<span class="sub">Fight other players online — first to 10 kills wins</span></button>
     <button class="modeBtn" id="trainingModeBtn">Aim Training<span class="sub">Private solo practice arena — no one else can join</span></button>
+  </div>
+
+  <div id="weaponSelect" hidden>
+    <h1>Choose Your Loadout</h1>
+    <p>Pick a starting weapon — you can still switch with 1-4 once you're in</p>
+    <div class="weaponGrid">
+      <button class="weaponCard" data-weapon="0">
+        <canvas class="weaponIcon" data-weapon-icon="0" width="160" height="120"></canvas>
+        <div class="weaponCardName">Pistol</div>
+        <div class="weaponCardStats" data-weapon-stats="0"></div>
+        <div class="weaponCardDesc">Quick, semi-automatic sidearm. Reliable at any range with tight hip-fire spread.</div>
+      </button>
+      <button class="weaponCard" data-weapon="1">
+        <canvas class="weaponIcon" data-weapon-icon="1" width="160" height="120"></canvas>
+        <div class="weaponCardName">Rifle</div>
+        <div class="weaponCardStats" data-weapon-stats="1"></div>
+        <div class="weaponCardDesc">Balanced, semi-automatic all-rounder. Solid damage and a full mag for sustained mid-range fights.</div>
+      </button>
+      <button class="weaponCard" data-weapon="2">
+        <canvas class="weaponIcon" data-weapon-icon="2" width="160" height="120"></canvas>
+        <div class="weaponCardName">Sniper</div>
+        <div class="weaponCardStats" data-weapon-stats="2"></div>
+        <div class="weaponCardDesc">One-shot kill through a real scope. Devastating at range, but slow to fire and reload.</div>
+      </button>
+      <button class="weaponCard" data-weapon="3">
+        <canvas class="weaponIcon" data-weapon-icon="3" width="160" height="120"></canvas>
+        <div class="weaponCardName">SMG</div>
+        <div class="weaponCardStats" data-weapon-stats="3"></div>
+        <div class="weaponCardDesc">Fully automatic. High fire rate for close-quarters pressure.</div>
+      </button>
+    </div>
   </div>
 
   <div id="pvpSetup" hidden>
