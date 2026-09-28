@@ -44,6 +44,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * The welcome also carries "room", "roomPublic" and "maxPlayers"; every later
  * broadcast (state, damage, kill, respawn, ...) stays inside the room.
  *
+ * Hit registration is lag-compensated: the server pings every player every 2 s to
+ * measure their round trip, keeps ~3 s of position history per player, and checks a
+ * shot against where its targets were when the shooter saw them (rewind = RTT + 50 ms,
+ * capped at 350 ms). TCP_NODELAY is on for every socket so small updates are not held back.
+ *
  * Plain HTTP extras: GET /health (liveness + counts, used by the host and by
  * clients waking a sleeping free-tier server) and GET /stats (lifetime
  * leaderboard). Lifetime kills/deaths/wins are saved to STATS_FILE (default
@@ -327,7 +332,7 @@ public class GameServer {
                 }
             }
             p.room = room;
-            p.pos = randomSpawn(room, p);
+            p.setPos(randomSpawn(room, p), true);
             p.syncPendingSinceMs = System.currentTimeMillis();
             room.players.put(p.id, p);
             return null;
@@ -376,7 +381,7 @@ public class GameServer {
         loadMap(new File(staticRoot, "map.json"));
         stats = new Stats(new File(System.getenv().getOrDefault("STATS_FILE", "data/stats.json")));
         scheduler.scheduleAtFixedRate(stats::saveIfDirty, 20, 20, TimeUnit.SECONDS);
-        scheduler.scheduleAtFixedRate(GameServer::pingEveryone, 25, 25, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(GameServer::pingEveryone, 1, 2, TimeUnit.SECONDS);
         Runtime.getRuntime().addShutdownHook(new Thread(stats::saveIfDirty));
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
@@ -384,6 +389,12 @@ public class GameServer {
                     + " (max " + MAX_PLAYERS_PER_ROOM + " players/room, stats: " + stats.describe() + ")");
             while (true) {
                 Socket socket = serverSocket.accept();
+                // Small, frequent messages: without this, Nagle's algorithm holds a write back until the
+                // previous one is acknowledged, which adds tens of milliseconds to every state update.
+                try {
+                    socket.setTcpNoDelay(true);
+                } catch (IOException ignored) {
+                }
                 Thread thread = new Thread(() -> handleConnection(socket));
                 thread.setDaemon(true);
                 thread.start();
@@ -391,9 +402,14 @@ public class GameServer {
         }
     }
 
-    /** WebSocket ping to every connection: keeps proxies from idling them out and lets us notice dead peers. */
+    /**
+     * WebSocket ping to every connection every couple of seconds: keeps proxies from idling them out, lets us
+     * notice dead peers, and -- the payload is our send time, echoed back in the pong -- measures each player's
+     * round-trip time, which lag compensation needs (see handleShoot).
+     */
     private static void pingEveryone() {
-        for (Player p : connected) p.sendControl(0x9, new byte[0]);
+        byte[] stamp = java.nio.ByteBuffer.allocate(8).putLong(System.nanoTime()).array();
+        for (Player p : connected) p.sendControl(0x9, stamp);
     }
 
     // ------------------------------------------------------ lifetime stats
@@ -754,13 +770,21 @@ public class GameServer {
 
             if (opcode == 0x8) return null;                          // close
             if (opcode == 0x9) { player.sendControl(0xA, payload); continue; } // ping -> pong
-            if (opcode == 0xA) continue;                             // pong (reading it already reset the idle timer)
+            if (opcode == 0xA) {                                     // pong: also our round-trip probe
+                if (payload.length == 8) {
+                    double rtt = (System.nanoTime() - java.nio.ByteBuffer.wrap(payload).getLong()) / 1e6;
+                    if (rtt >= 0 && rtt < 5000) player.rttMs = player.rttMs == 0 ? rtt : player.rttMs * 0.7 + rtt * 0.3;
+                }
+                continue;
+            }
             if (opcode == 0x1) return new String(payload, StandardCharsets.UTF_8);
             // binary/continuation frames: unused by this protocol, ignore
         }
     }
 
     // ------------------------------------------------------------- players
+
+    private static final int HISTORY_SIZE = 64; // ~3 s of 20 Hz reports
 
     static final class Player {
         final int id;
@@ -786,6 +810,45 @@ public class GameServer {
         volatile long syncPendingSinceMs = System.currentTimeMillis(); // when awaitingSync last became true
 
         volatile Room room;          // null until the player has joined one
+        volatile double rttMs = 0;   // round trip to this player, measured by the server's own pings (see pingEveryone)
+
+        // Recent positions with server-receive timestamps, so a shot can be checked against where the
+        // shooter SAW this player (lag compensation, see handleShoot) instead of where they are now.
+        private final long[] histT = new long[HISTORY_SIZE];
+        private final double[][] histP = new double[HISTORY_SIZE][];
+        private int histCount = 0, histHead = 0;
+
+        /** Moves the player. {@code teleport} (spawn, respawn, correction) drops the history so shots never interpolate across the jump. */
+        synchronized void setPos(double[] np, boolean teleport) {
+            long now = System.currentTimeMillis();
+            if (teleport) histCount = 0;
+            pos = np;
+            histT[histHead] = now;
+            histP[histHead] = np;
+            histHead = (histHead + 1) % HISTORY_SIZE;
+            if (histCount < HISTORY_SIZE) histCount++;
+        }
+
+        /** Where this player was at {@code timeMs} (interpolated between the reports either side; clamped to the recorded range). */
+        synchronized double[] posAt(long timeMs) {
+            if (histCount == 0) return pos;
+            int first = ((histHead - histCount) % HISTORY_SIZE + HISTORY_SIZE) % HISTORY_SIZE; // oldest entry
+            double[] prev = null;
+            long prevT = 0;
+            for (int k = 0; k < histCount; k++) { // oldest -> newest
+                int idx = (first + k) % HISTORY_SIZE;
+                if (histT[idx] > timeMs) {
+                    if (prev == null) return histP[idx]; // before the oldest report
+                    double f = (double) (timeMs - prevT) / Math.max(1, histT[idx] - prevT);
+                    double[] b = histP[idx];
+                    return new double[]{prev[0] + (b[0] - prev[0]) * f, prev[1] + (b[1] - prev[1]) * f, prev[2] + (b[2] - prev[2]) * f};
+                }
+                prev = histP[idx];
+                prevT = histT[idx];
+            }
+            return prev; // newer than every report: the latest one
+        }
+
         long rateWindowStart = 0;    // message-rate limiting (see MAX_MESSAGES_PER_SECOND)
         int rateCount = 0;
 
@@ -1007,16 +1070,28 @@ public class GameServer {
             if (emptiedMag) startReload(shooter, weaponIdx);
             return;
         }
+        // The server's copy of the shooter's position trails their real one by about one-way latency + the
+        // report interval, which at sprint speed is a metre or more -- enough to turn a dead-centre aim into a
+        // miss. So the client's own origin is used when it is close to where the server has them; anything
+        // farther (a spoof) falls back to the server's position. Melee gets a tighter leash: reach is measured
+        // from the origin, so a bigger allowance would be free knife range.
         double[] origin = shooter.pos.clone();
+        double[] claimed = parseVec3(obj.get("origin"));
+        if (claimed != null && distance(claimed, origin) <= (melee ? ORIGIN_TOLERANCE_MELEE : ORIGIN_TOLERANCE)) origin = claimed;
         // A wall/tree/rock in the way beats every player behind it, same as
         // the client's own raycast against the map's solid geometry.
         double obstacleDist = nearestObstacleDistance(origin, dir);
 
+        // Lag compensation: the shooter aimed at where they SAW each target -- a state report that had to reach
+        // the server, come back down to the shooter, and be drawn -- so check against that moment in each
+        // target's recent past, not their position now. The rewind is the shooter's measured round trip plus
+        // a little for the client's smoothing, capped so a laggy (or lying) shooter can't reach far back.
+        long hitTime = System.currentTimeMillis() - Math.min(MAX_REWIND_MS, Math.round(shooter.rttMs + SMOOTHING_ALLOWANCE_MS));
         Player closest = null;
         double closestDist = Double.MAX_VALUE;
         for (Player other : room.players.values()) {
             if (other.id == shooter.id || !other.alive) continue;
-            Double dist = intersectAABB(origin, dir, other.pos);
+            Double dist = intersectAABB(origin, dir, other.posAt(hitTime));
             if (dist != null && dist < obstacleDist && dist <= WEAPON_RANGE[weaponIdx] && dist < closestDist) {
                 closestDist = dist;
                 closest = other;
@@ -1056,7 +1131,7 @@ public class GameServer {
 
         scheduler.schedule(() -> {
             if (victim.room != room) return; // left (or the room emptied) while waiting to respawn
-            victim.pos = randomSpawn(room, victim); // excluded defensively; they're also not `alive` yet at this point anyway
+            victim.setPos(randomSpawn(room, victim), true); // excluded defensively; they're also not `alive` yet at this point anyway
             victim.awaitingSync = true; // ignore movement reports until the client lands at the new spot
             victim.syncPendingSinceMs = System.currentTimeMillis();
             victim.hp = MAX_HP;
@@ -1079,6 +1154,10 @@ public class GameServer {
         for (int i = 0; i < list.size(); i++) arr[i] = ((Number) list.get(i)).doubleValue();
         return arr;
     }
+
+    private static final double ORIGIN_TOLERANCE = 2.5, ORIGIN_TOLERANCE_MELEE = 1.0;
+    private static final long MAX_REWIND_MS = 350;
+    private static final long SMOOTHING_ALLOWANCE_MS = 50;
 
     // Player hit box: centered on the reported eye position (camera height ~1.7).
     private static final double HALF_W = 0.4, HALF_D = 0.35, BELOW_EYE = 1.6, ABOVE_EYE = 0.2;
@@ -1189,7 +1268,7 @@ public class GameServer {
         } else {
             String reason = validateMove(p, to, now);
             if (reason != null) {
-                if (reason.equals("bounds")) p.pos = randomSpawn(room, p); // walked/fell off the map: back to a fresh spawn
+                if (reason.equals("bounds")) p.setPos(randomSpawn(room, p), true); // walked/fell off the map: back to a fresh spawn
                 p.awaitingSync = true;
                 p.syncPendingSinceMs = System.currentTimeMillis();
                 sendCorrection(p, reason);
@@ -1197,7 +1276,7 @@ public class GameServer {
             }
         }
 
-        p.pos = to;
+        p.setPos(to, false);
         Object yawObj = obj.get("yaw");
         Object pitchObj = obj.get("pitch");
         if (yawObj instanceof Number) p.yaw = ((Number) yawObj).doubleValue();
