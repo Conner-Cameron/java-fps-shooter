@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { WEAPONS } from "./weapons.js";
 import { hazardTexture } from "./textures.js";
 import { addBox } from "./world.js";

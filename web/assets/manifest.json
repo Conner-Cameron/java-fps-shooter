@@ -1,0 +1,6 @@
+{
+  "weapons": {
+    "0": { "model": "models/pistol.glb", "scale": 2.2, "position": [0, -0.12, -0.05], "muzzle": [0, -0.03, -0.3], "iconRotationY": 2.2 },
+    "2": { "model": "models/sniper.glb", "scale": 1.15, "position": [0, -0.03, -0.04], "muzzle": [0, 0.01, -0.78], "iconRotationY": 2.2 }
+  }
+}

@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { collidables, solidBoxes, rampColliders } from "./world.js";
 
 const GROUND_PROBE_UP = 0.4;   // cast the ray from this far above current feet

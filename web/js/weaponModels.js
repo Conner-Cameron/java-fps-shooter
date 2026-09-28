@@ -1,4 +1,6 @@
-import { camera } from "./core.js";
+import * as THREE from "three";
+import { camera, renderer } from "./core.js";
+import { loadWeaponAssets, makeEnvironment, instantiateWeapon } from "./assets.js";
 import { WEAPONS } from "./weapons.js";
 import { makeCanvasTexture, tiledClone, metalTexture } from "./textures.js";
 
@@ -113,7 +115,19 @@ const rifleMats = makeWeaponPhotoMats("assets/sniper_reference.png", [550, 450, 
 // Knife has no reference photo -- createGunModel() falls back to its
 // original plain procedural metal/accent materials when no customMats
 // are given, same as every weapon looked before the photo textures.
-const gunModels = [createGunModel(0, pistolMats), createGunModel(1, rifleMats), createGunModel(2, sniperMats), createGunModel(3, smgMats), createGunModel(4)];
+// Real glTF models (web/assets/manifest.json) replace the procedural boxes
+// per weapon where available; anything missing keeps the procedural model.
+const weaponAssets = await loadWeaponAssets();
+const mainEnv = weaponAssets.size ? makeEnvironment(renderer) : null;
+
+function buildWeapon(type, mats, env) {
+  return weaponAssets.has(type) ? instantiateWeapon(weaponAssets.get(type), env) : createGunModel(type, mats);
+}
+
+const gunModels = [
+  buildWeapon(0, pistolMats, mainEnv), buildWeapon(1, rifleMats, mainEnv), buildWeapon(2, sniperMats, mainEnv),
+  buildWeapon(3, smgMats, mainEnv), buildWeapon(4, undefined, mainEnv)
+];
 gunModels.forEach((g, i) => {
   g.position.set(GUN_BASE_POS.x, GUN_BASE_POS.y, GUN_BASE_POS.z);
   g.rotation.y = THREE.MathUtils.degToRad(8);
@@ -148,24 +162,55 @@ const iconPreviewCamera = new THREE.PerspectiveCamera(32, 160 / 120, 0.05, 10);
 iconPreviewCamera.position.set(0.55, 0.22, 0.75);
 iconPreviewCamera.lookAt(0, -0.02, 0);
 
+// Its own environment: a WebGL texture can't be shared with the main renderer.
+const iconEnv = weaponAssets.size ? makeEnvironment(iconPreviewRenderer) : null;
+// Procedural boxes keep the original full turntable spin. A real model is
+// re-centered inside a wrapper (so it turns around its own middle, not the
+// file's origin) and only sways around the manifest's `iconRotationY` -- a
+// thin cut-out or any model with a "good side" looks wrong edge-on.
+function buildIconModel(type, mats) {
+  if (!weaponAssets.has(type)) {
+    const g = createGunModel(type, mats);
+    g.userData.baseYaw = THREE.MathUtils.degToRad(20);
+    g.userData.spin = true;
+    return g;
+  }
+  const inner = buildWeapon(type, mats, iconEnv);
+  inner.userData.flash.visible = false;
+  const box = new THREE.Box3().setFromObject(inner);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  inner.position.set(-center.x, -0.02 - center.y, -center.z);
+  const wrapper = new THREE.Group();
+  wrapper.add(inner);
+  wrapper.scale.setScalar(0.62 / Math.max(size.x, size.y, size.z)); // fit the icon frame whatever the model's size
+  wrapper.userData.baseYaw = weaponAssets.get(type).spec.iconRotationY ?? THREE.MathUtils.degToRad(20);
+  wrapper.userData.spin = false;
+  return wrapper;
+}
+
 const iconGunModels = [
-  createGunModel(0, pistolMats),
-  createGunModel(1, rifleMats),
-  createGunModel(2, sniperMats),
-  createGunModel(3, smgMats)
+  buildIconModel(0, pistolMats),
+  buildIconModel(1, rifleMats),
+  buildIconModel(2, sniperMats),
+  buildIconModel(3, smgMats)
 ];
-iconGunModels.forEach((g) => { g.rotation.y = THREE.MathUtils.degToRad(20); });
+iconGunModels.forEach((g) => { g.rotation.y = g.userData.baseYaw; });
 
 const iconCanvases = [0, 1, 2, 3].map((i) => document.querySelector(`[data-weapon-icon="${i}"]`));
 const iconCtx = iconCanvases.map((c) => c.getContext("2d"));
+let iconTime = 0;
 
 export function renderWeaponIcons(dt, visible) {
   if (!visible) return;
+  iconTime += dt;
   for (let i = 0; i < 4; i++) {
-    iconGunModels[i].rotation.y += dt * 0.4;
-    iconPreviewScene.add(iconGunModels[i]);
+    const g = iconGunModels[i];
+    if (g.userData.spin) g.rotation.y += dt * 0.4;
+    else g.rotation.y = g.userData.baseYaw + Math.sin(iconTime * 0.9) * 0.5;
+    iconPreviewScene.add(g);
     iconPreviewRenderer.render(iconPreviewScene, iconPreviewCamera);
-    iconPreviewScene.remove(iconGunModels[i]);
+    iconPreviewScene.remove(g);
     iconCtx[i].clearRect(0, 0, 160, 120);
     iconCtx[i].drawImage(iconPreviewCanvas, 0, 0);
   }

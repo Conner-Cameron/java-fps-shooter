@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { tiledClone, metalTexture } from "./textures.js";
 
 // ================================================================

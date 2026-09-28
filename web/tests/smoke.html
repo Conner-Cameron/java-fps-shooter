@@ -60,6 +60,15 @@
   const mouse = (type, button) => canvas.dispatchEvent(new win.MouseEvent(type, { button, bubbles: true }));
   const wheel = () => canvas.dispatchEvent(new win.WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true }));
 
+  // ---------------- asset pipeline ----------------
+  const manifest = await (await fetch("/assets/manifest.json")).json();
+  for (const [idx, spec] of Object.entries(manifest.weapons || {})) {
+    const res = await fetch("/assets/" + spec.model);
+    const head = new TextDecoder().decode(new Uint8Array(await res.arrayBuffer()).slice(0, 4));
+    check("asset: weapon " + idx + " model served as a real glb", res.ok && head === "glTF" && /gltf-binary/.test(res.headers.get("content-type") || ""), res.status + " " + head);
+  }
+  check("asset: loading screen dismissed", !doc().getElementById("loading"));
+
   // ---------------- Aim Training flow ----------------
   $("#trainingModeBtn").click();
   await wait(100);

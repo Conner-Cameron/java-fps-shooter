@@ -1,3 +1,4 @@
+import * as THREE from "three";
 // Renderer, scene, camera and lights -- created once at import time and shared by every other module.
 // ================================================================
 // Renderer / scene / camera

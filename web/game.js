@@ -18,6 +18,7 @@
 //   net.js          WebSocket transport
 // ================================================================
 
+import * as THREE from "three";
 import { renderer, scene, camera, BASE_FOV } from "./js/core.js";
 import { WEAPONS, KNIFE_INDEX } from "./js/weapons.js";
 import { hazardTexture } from "./js/textures.js";
@@ -31,6 +32,7 @@ import { findGroundY, collidesAt, collidesWithRamps, findCeilingY, PLAYER_HEIGHT
 import { showGun, triggerGunFire, updateGunModel, renderWeaponIcons } from "./js/weaponModels.js";
 import { initMenus, isScreenVisible, setOverlayVisible } from "./js/screens.js";
 import { connect, isConnected, sendMessage } from "./js/net.js";
+import { finishLoading } from "./js/assets.js";
 import {
   showHitMarker, setScopeVisible, setAdsCrosshairVisible, setCrosshairHidden, setCrosshairGap, clearAimUi,
   setDeathOverlay, showBanner, hideBanner, setStatus, renderScoreboard, renderHealth, renderWeapon, renderAmmo,
@@ -813,3 +815,4 @@ function tick(now) {
 }
 
 requestAnimationFrame(tick);
+finishLoading();

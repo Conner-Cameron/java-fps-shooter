@@ -1,3 +1,4 @@
+import * as THREE from "three";
 // Procedural canvas textures (no image assets) shared across the world, targets, player models and guns.
 // Procedural textures (canvas-painted, no image assets) shared across
 // walls, targets, terrain, player models, and the gun -- each is

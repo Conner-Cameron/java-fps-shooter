@@ -254,6 +254,18 @@
     transform: translate(-50%, -50%) scale(1);
   }
 
+  #loading {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0b0d10;
+    color: #fff;
+    font-size: 18px;
+  }
+
   #overlay {
     position: fixed;
     inset: 0;
@@ -351,6 +363,7 @@
 </style>
 </head>
 <body>
+<div id="loading">Loading&hellip;</div>
 
 <div id="hud" hidden>
   Kills: <span id="kills">0</span> / <span id="killLimit">10</span>
@@ -451,7 +464,12 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
 <script type="module" src="game.js"></script>
 </body>
 </html>

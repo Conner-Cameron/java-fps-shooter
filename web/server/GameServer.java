@@ -355,6 +355,10 @@ public class GameServer {
         if (path.endsWith(".css")) return "text/css; charset=utf-8";
         if (path.endsWith(".json")) return "application/json; charset=utf-8";
         if (path.endsWith(".png")) return "image/png";
+        if (path.endsWith(".webp")) return "image/webp";
+        if (path.endsWith(".glb")) return "model/gltf-binary";
+        if (path.endsWith(".gltf")) return "model/gltf+json";
+        if (path.endsWith(".ktx2")) return "image/ktx2";
         if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
         return "application/octet-stream";
     }

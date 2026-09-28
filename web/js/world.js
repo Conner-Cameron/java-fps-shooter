@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { scene } from "./core.js";
 import { tiledClone, metalTexture, rockTexture, barkTexture, foliageTexture, makeGroundTexture } from "./textures.js";
 
