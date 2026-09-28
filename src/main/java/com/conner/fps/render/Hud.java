@@ -21,6 +21,7 @@ public final class Hud {
         public int ammo, magSize;
         public boolean reloading;
         public String status = "";
+        public String roomCode = "";           // PvP room, shown next to the counters
         public List<String[]> scoreboard = List.of();
         public float hipSpreadPixels;          // half-gap of the hip-fire crosshair
         public boolean aiming, adsDot, scoped;
@@ -52,7 +53,7 @@ public final class Hud {
 
         // top-left: mode counters
         String top = d.pvp
-                ? "Kills: " + d.kills + " / " + d.killLimit + "   •   Players: " + d.playerCount
+                ? "Kills: " + d.kills + " / " + d.killLimit + "   •   Players: " + d.playerCount + (d.roomCode.isEmpty() ? "" : "   •   Room: " + d.roomCode)
                 : "Practice score: " + d.score;
         ui.textShadow(font18, top, 16, 16, 1, 1, 1, 1);
 

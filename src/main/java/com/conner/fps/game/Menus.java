@@ -2,6 +2,7 @@ package com.conner.fps.game;
 
 import com.conner.fps.data.Weapons;
 import com.conner.fps.engine.Input;
+import com.conner.fps.net.ServerInfo;
 import com.conner.fps.render.FontAtlas;
 import com.conner.fps.render.Ui;
 
@@ -27,6 +28,8 @@ public final class Menus {
         public int weapon;
         public String name = "";
         public String server = "";
+        public String roomMode = "quick"; // "quick" | "create" | "code"
+        public String roomCode = "";
     }
 
     /** Screen-space rectangle (top-left origin) where a weapon preview should be rendered. */
@@ -50,7 +53,13 @@ public final class Menus {
     private String pendingMode = "training";
     private String name = "";
     private String server;
-    private int focusedField = 0; // 0 = name, 1 = server
+    private static final String ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final String[] ROOM_MODES = {"quick", "create", "code"};
+    private int focusedField = 0; // 0 = name, 1 = server, 2 = room code
+    private int roomMode = 0;     // index into ROOM_MODES
+    private String roomCode = "";
+    private String roomError = "";
+    private volatile List<ServerInfo.Leader> leaders = List.of();
     private final List<PreviewRect> previews = new ArrayList<>();
     private boolean resumeAvailable = false;
 
@@ -151,20 +160,66 @@ public final class Menus {
             case PVP_SETUP: {
                 ui.textCentered(fonts.title, "PvP Deathmatch", cx, h / 2f - 170, 1, 1, 1, 1);
                 controlsText(ui, fonts, cx, h / 2f - 108, "first to 10 kills wins the lobby");
-                textField(ui, fonts, "Your name", name, cx - 140, h / 2f - 26, 280, 34, focusedField == 0, cursorX, cursorY, click, 0);
-                textField(ui, fonts, "Server", server, cx - 140, h / 2f + 18, 280, 34, focusedField == 1, cursorX, cursorY, click, 1);
-                editFocused();
-                if (bigButtonSmall(ui, fonts, "Click to Play", cx - 90, h / 2f + 70, 180, 42, cursorX, cursorY) && click) {
-                    action.type = Action.START_PVP;
-                    action.name = name.trim().isEmpty() ? "Player" + (int) (Math.random() * 1000) : name.trim();
-                    action.server = server.trim();
+                float m = h / 2f;
+                textField(ui, fonts, "Your name", name, cx - 140, m - 44, 280, 34, focusedField == 0, cursorX, cursorY, click, 0);
+                textField(ui, fonts, "Server", server, cx - 140, m, 280, 34, focusedField == 1, cursorX, cursorY, click, 1);
+
+                // lobby: quick play / create a private room / join one by its code
+                String[] labels = {"Quick Play", "Create Room", "Join by Code"};
+                float bw = 124, bgap = 8, bx = cx - (3 * bw + 2 * bgap) / 2f;
+                for (int i = 0; i < 3; i++) {
+                    float x = bx + i * (bw + bgap);
+                    boolean sel = roomMode == i;
+                    boolean hover = inside(cursorX, cursorY, x, m + 48, bw, 32);
+                    float[] c = sel ? YELLOW : new float[]{1, 1, 1};
+                    if (sel) ui.rect(x, m + 48, bw, 32, c[0], c[1], c[2], 1f);
+                    else ui.rect(x, m + 48, bw, 32, hover ? 0.25f : 0.05f, hover ? 0.25f : 0.05f, hover ? 0.28f : 0.06f, 0.85f);
+                    float tc = sel ? 0.10f : 1f;
+                    ui.text(fonts.small, labels[i], x + (bw - fonts.small.width(labels[i])) / 2f, m + 48 + (32 - fonts.small.lineHeight) / 2f, tc, sel ? 0.08f : 1f, sel ? 0f : 1f, 1);
+                    if (hover && click) { roomMode = i; roomError = ""; focusedField = i == 2 ? 2 : Math.min(focusedField, 1); }
                 }
-                if (hint != null && !hint.isEmpty()) ui.textCentered(fonts.small, hint, cx, h / 2f + 124, 1, 0.8f, 0.5f, 1);
-                ui.textCentered(fonts.small, "Esc: back", cx, h / 2f + 150, 1, 1, 1, 0.6f);
-                if (Input.keyPressed[GLFW_KEY_ENTER]) {
-                    action.type = Action.START_PVP;
-                    action.name = name.trim().isEmpty() ? "Player" + (int) (Math.random() * 1000) : name.trim();
-                    action.server = server.trim();
+                String[] hints = {"Jump into the fullest public match with room for you", "Start a private room and share its code with friends", "Enter the 4-letter code a friend gave you"};
+                ui.textCentered(fonts.small, hints[roomMode], cx, m + 92, 1, 1, 1, 0.6f);
+                float py = m + 112;
+                if (roomMode == 2) {
+                    codeField(ui, fonts, cx - 70, py, 140, 34, cursorX, cursorY, click);
+                    py += 46;
+                } else if (focusedField == 2) {
+                    focusedField = 0;
+                }
+                editFocused();
+
+                boolean go = bigButtonSmall(ui, fonts, "Click to Play", cx - 90, py, 180, 42, cursorX, cursorY) && click;
+                if (Input.keyPressed[GLFW_KEY_ENTER]) go = true;
+                if (go) {
+                    if (roomMode == 2 && roomCode.length() != 4) {
+                        roomError = "Enter the 4-letter room code";
+                    } else {
+                        roomError = "";
+                        action.type = Action.START_PVP;
+                        action.name = name.trim().isEmpty() ? "Player" + (int) (Math.random() * 1000) : name.trim();
+                        action.server = server.trim();
+                        action.roomMode = ROOM_MODES[roomMode];
+                        action.roomCode = roomMode == 2 ? roomCode : "";
+                    }
+                }
+                String msg = hint != null && !hint.isEmpty() ? hint : roomError;
+                if (!msg.isEmpty()) ui.textCentered(fonts.small, msg, cx, py + 56, 1, 0.8f, 0.5f, 1);
+                ui.textCentered(fonts.small, "Esc: back", cx, py + 80, 1, 1, 1, 0.6f);
+
+                if (!leaders.isEmpty()) {
+                    float lx = cx + 170, ly = m - 44, lw = 240;
+                    ui.rect(lx, ly, lw, 30 + leaders.size() * 22, 0, 0, 0, 0.35f);
+                    ui.text(fonts.small, "ALL-TIME LEADERS", lx + (lw - fonts.small.width("ALL-TIME LEADERS")) / 2f, ly + 6, 1, 1, 1, 0.65f);
+                    float ry = ly + 30;
+                    for (ServerInfo.Leader l : leaders) {
+                        String nm = l.name;
+                        while (fonts.small.width(nm) > 100 && nm.length() > 1) nm = nm.substring(0, nm.length() - 1);
+                        ui.text(fonts.small, nm, lx + 10, ry, 1, 1, 1, 0.95f);
+                        String stat = l.kills + "k  " + l.wins + "w";
+                        ui.text(fonts.small, stat, lx + lw - 10 - fonts.small.width(stat), ry, YELLOW[0], YELLOW[1], YELLOW[2], 1);
+                        ry += 22;
+                    }
                 }
                 break;
             }
@@ -238,18 +293,47 @@ public final class Menus {
         }
     }
 
+    /** The 4-character room code box: letters/digits only, always uppercase (matches the server's alphabet filter). */
+    private void codeField(Ui ui, Fonts fonts, float x, float y, float w, float h, double mx, double my, boolean click) {
+        boolean focused = focusedField == 2;
+        if (click && inside(mx, my, x, y, w, h)) focusedField = 2;
+        ui.rect(x, y, w, h, 0.05f, 0.05f, 0.06f, 0.85f);
+        ui.rectOutline(x, y, w, h, 2, focused ? YELLOW[0] : 1f, focused ? YELLOW[1] : 1f, focused ? YELLOW[2] : 1f, focused ? 1f : 0.3f);
+        String shown = roomCode.isEmpty() ? "ROOM CODE" : roomCode;
+        float a = roomCode.isEmpty() ? 0.45f : 1f;
+        float tw = fonts.body.width(shown);
+        ui.text(fonts.body, shown, x + (w - tw) / 2f, y + (h - fonts.body.lineHeight) / 2f, 1, 1, 1, a);
+        if (focused && (System.currentTimeMillis() / 500) % 2 == 0) {
+            float cxp = roomCode.isEmpty() ? x + w / 2f : x + (w + tw) / 2f;
+            ui.rect(cxp + 1, y + 7, 2, h - 14, 1, 1, 1, 1);
+        }
+    }
+
     private void editFocused() {
         String t = Input.typed.toString();
         if (focusedField == 0) {
             name = (name + t);
             if (name.length() > 16) name = name.substring(0, 16);
             if (Input.backspacePressed && !name.isEmpty()) name = name.substring(0, name.length() - 1);
-        } else {
+        } else if (focusedField == 1) {
             server = server + t;
             if (server.length() > 80) server = server.substring(0, 80);
             if (Input.backspacePressed && !server.isEmpty()) server = server.substring(0, server.length() - 1);
+        } else {
+            StringBuilder b = new StringBuilder(roomCode);
+            for (char c : t.toUpperCase().toCharArray()) {
+                if (ROOM_CODE_ALPHABET.indexOf(c) >= 0 && b.length() < 4) b.append(c);
+            }
+            roomCode = b.toString();
+            if (Input.backspacePressed && !roomCode.isEmpty()) roomCode = roomCode.substring(0, roomCode.length() - 1);
+            if (!t.isEmpty()) roomError = "";
         }
-        if (Input.keyPressed[GLFW_KEY_TAB]) focusedField = 1 - focusedField;
+        if (Input.keyPressed[GLFW_KEY_TAB]) focusedField = (focusedField + 1) % (roomMode == 2 ? 3 : 2);
+    }
+
+    /** Lifetime leaderboard rows shown beside the PvP setup form (set by the game when the screen opens). */
+    public void setLeaders(List<ServerInfo.Leader> rows) {
+        leaders = rows == null ? List.of() : rows;
     }
 
     private static List<String> wrap(FontAtlas font, String text, float maxWidth) {

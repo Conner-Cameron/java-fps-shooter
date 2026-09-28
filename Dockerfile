@@ -7,6 +7,8 @@ FROM eclipse-temurin:17-jdk-jammy
 
 WORKDIR /app
 COPY web/ /app/web/
+RUN mkdir -p /app/data
 
 EXPOSE 8080
-CMD ["java", "web/server/GameServer.java"]
+# Small heap + serial GC: the free tier has 512 MB total and this server is tiny.
+CMD ["java", "-Xmx256m", "-XX:+UseSerialGC", "-Xss512k", "web/server/GameServer.java"]

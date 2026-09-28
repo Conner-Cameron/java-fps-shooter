@@ -84,11 +84,24 @@ export function setStatus(text) {
   statusEl.textContent = text;
 }
 
+// Shows the PvP room code in the HUD (null hides it).
+export function setRoomCode(code) {
+  $("roomInfo").hidden = !code;
+  $("roomCode").textContent = code || "";
+}
+
+// Names come from other players: build the rows with textContent, never as markup.
 export function renderScoreboard({ myKills, killLimit, playerCount, rows }) {
   killsEl.textContent = String(myKills);
   killLimitEl.textContent = String(killLimit);
   playerCountEl.textContent = String(playerCount);
-  scoreboardEl.innerHTML = rows.map((r) => `<div>${r.name}: ${r.kills}</div>`).join("");
+  scoreboardEl.replaceChildren(
+    ...rows.map((r) => {
+      const row = document.createElement("div");
+      row.textContent = `${r.name}: ${r.kills}`;
+      return row;
+    })
+  );
 }
 
 export function renderHealth(hp, maxHp) {

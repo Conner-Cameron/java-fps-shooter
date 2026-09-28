@@ -31,13 +31,13 @@ import {
 import { createPlayerModel, EYE_OFFSET, lerpAngle } from "./js/playerModel.js";
 import { findGroundY, collidesAt, collidesWithRamps, findCeilingY, PLAYER_HEIGHT } from "./js/collision.js";
 import { showGun, triggerGunFire, updateGunModel, renderWeaponIcons } from "./js/weaponModels.js";
-import { initMenus, isScreenVisible, setOverlayVisible, showScreen } from "./js/screens.js";
-import { connect, disconnect, isConnected, sendMessage } from "./js/net.js";
+import { initMenus, isScreenVisible, setOverlayVisible, showScreen, setPvpError } from "./js/screens.js";
+import { connect, disconnect, isConnected, sendMessage, startKeepAlive } from "./js/net.js";
 import { finishLoading } from "./js/assets.js";
 import {
   showHitMarker, setScopeVisible, setAdsCrosshairVisible, setCrosshairHidden, setCrosshairGap, clearAimUi,
   setDeathOverlay, showBanner, hideBanner, setStatus, renderScoreboard, renderHealth, renderWeapon, renderAmmo,
-  renderTrainingScore
+  renderTrainingScore, setRoomCode
 } from "./js/hud.js";
 
 // World geometry lives in map.json (shared with the server) -- fetched
@@ -142,8 +142,17 @@ function handleServerMessage(msg) {
         rp.group.position.copy(rp.targetPos);
         rp.targetYaw = -p.yaw;
       }
-      setStatus(`Connected as ${playerName || "you"}`);
+      setRoomCode(msg.room);
+      setStatus(`Connected as ${playerName || "you"}` + (msg.roomPublic === false ? ` — private room ${msg.room}, share the code` : ""));
       updateHud();
+      break;
+    }
+    case "error": {
+      // Couldn't get into the requested room: back to the PvP setup screen with the reason.
+      leaveGame({ keepLoadout: true });
+      showScreen("pvp");
+      setPvpError(msg.reason || "Couldn't join that room");
+      if (isLocked()) document.exitPointerLock();
       break;
     }
     case "playerJoined": {
@@ -323,12 +332,13 @@ initMenus({
     primaryWeapon = idx;
     selectWeapon(idx); // no-op if it's already equipped (e.g. the default rifle)
   },
-  onStartPvp(name) {
+  onStartPvp(name, room) {
     if (!started) {
       started = true;
       gameMode = "pvp";
       playerName = name;
-      connect(name, handleServerMessage, setStatus);
+      setStatus("Connecting2026");
+      connect(name, room, handleServerMessage, setStatus);
       document.getElementById("hud").hidden = false;
       document.getElementById("healthPanel").hidden = false;
       resumeAudio();
@@ -355,7 +365,13 @@ initMenus({
   }
 });
 
+startKeepAlive();
+
 document.addEventListener("pointerlockchange", () => {
+  if (isLocked() && !started) { // a join failed while the lock request was still in flight
+    document.exitPointerLock();
+    return;
+  }
   setOverlayVisible(!isLocked());
   if (!isLocked()) {
     mouseHeld = false;
@@ -368,8 +384,9 @@ document.addEventListener("pointerlockchange", () => {
 // Leaves the current game entirely -- disconnects from the match, tears down
 // its world state, and returns to mode select so a different mode/class can
 // be chosen without reloading the page.
-function leaveGame() {
+function leaveGame({ keepLoadout = false } = {}) {
   disconnect();
+  setRoomCode(null);
   for (const id of [...remotePlayers.keys()]) removeRemotePlayer(id);
   clearPracticeTargets();
   for (const k of Object.keys(keys)) keys[k] = false;
@@ -392,9 +409,9 @@ function leaveGame() {
   // back to the default loadout, full magazines
   ammo = WEAPONS.map((w) => w.magSize);
   reloading = false;
-  currentWeapon = 1;
-  primaryWeapon = 1;
-  showGun(1);
+  if (!keepLoadout) primaryWeapon = 1;
+  currentWeapon = primaryWeapon;
+  showGun(currentWeapon);
 
   yaw = -Math.PI / 2;
   pitch = 0;
@@ -411,7 +428,7 @@ function leaveGame() {
   updateAmmoHud();
   updateHealthHud();
 
-  showScreen("mode");
+  if (!keepLoadout) showScreen("mode");
   setOverlayVisible(true);
 }
 

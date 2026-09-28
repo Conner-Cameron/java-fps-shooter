@@ -3,6 +3,7 @@
 // module just delivers parsed messages and sends objects as JSON.
 let ws = null;
 let connected = false;
+let keepAliveTimer = null;
 
 function wsUrl() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -18,11 +19,27 @@ export function sendMessage(obj) {
   if (connected) ws.send(JSON.stringify(obj));
 }
 
-/**
- * Opens the connection and joins under `playerName`.
- * onMessage(msg) gets every parsed server message; onStatus(text) gets
- * connection problems ("Disconnected from server", "Connection error").
- */
+// Free hosting puts an idle server to sleep. While this page is open, a cheap
+// request every few minutes keeps it awake (it can't help once every tab is closed).
+export function startKeepAlive(intervalMs = 4 * 60 * 1000) {
+  if (keepAliveTimer) return;
+  keepAliveTimer = setInterval(() => {
+    fetch("/health", { cache: "no-store" }).catch(() => {});
+  }, intervalMs);
+}
+
+/** Lifetime leaderboard rows ({name,kills,deaths,wins}) or [] if the server can't say. */
+export async function fetchLeaderboard() {
+  try {
+    const res = await fetch("/stats", { cache: "no-store" });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.leaderboard) ? data.leaderboard : [];
+  } catch (e) {
+    return [];
+  }
+}
+
 // Leaves the match on purpose: the server sees the socket close and tells the others "playerLeft".
 export function disconnect() {
   if (!ws) return;
@@ -34,11 +51,17 @@ export function disconnect() {
   connected = false;
 }
 
-export function connect(playerName, onMessage, onStatus) {
+/**
+ * Opens the connection and joins under `playerName`.
+ * `room` is { mode: "quick" | "create" | "code", code } -- which lobby to end up in.
+ * onMessage(msg) gets every parsed server message; onStatus(text) gets
+ * connection problems ("Disconnected from server", "Connection error").
+ */
+export function connect(playerName, room, onMessage, onStatus) {
   ws = new WebSocket(wsUrl());
   ws.onopen = () => {
     connected = true;
-    sendMessage({ type: "join", name: playerName });
+    sendMessage({ type: "join", name: playerName, mode: room.mode, code: room.code || "" });
   };
   ws.onclose = () => {
     connected = false;

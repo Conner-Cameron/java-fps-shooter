@@ -154,19 +154,34 @@
   const seen = [];
   const observer = new WebSocket("ws://" + location.host + "/ws");
   let observerSawLeft = false;
-  observer.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "state") seen.push(m.pos); if (m.type === "playerLeft") observerSawLeft = true; };
+  let roomCode = null;
+  observer.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "welcome") roomCode = m.room; if (m.type === "state") seen.push(m.pos); if (m.type === "playerLeft") observerSawLeft = true; };
   await new Promise((r) => (observer.onopen = r));
-  observer.send(JSON.stringify({ type: "join", name: "Observer" }));
+  observer.send(JSON.stringify({ type: "join", name: "Observer", mode: "create" }));
+  for (let i = 0; i < 20 && !roomCode; i++) await wait(100);
+  check("rooms: creating a room returns a 4-letter code", /^[A-Z0-9]{4}$/.test(roomCode || ""), roomCode);
 
+  // a wrong code bounces back to the PvP setup screen with the reason, keeping the chosen class
+  const pvis0 = (sel) => vis(pdoc().querySelector(sel));
   pdoc().getElementById("pvpModeBtn").click();
   pdoc().querySelector('.weaponCard[data-weapon="0"]').click();
+  pdoc().querySelector('input[name="roomMode"][value="code"]').click();
+  pdoc().getElementById("roomCodeInput").value = "ZZZZ";
+  pdoc().getElementById("startBtn").click();
+  await wait(1200);
+  check("rooms: unknown code returns to PvP setup with an error", pvis0("#pvpSetup") && /No room/.test(pdoc().getElementById("pvpError").textContent), pdoc().getElementById("pvpError").textContent);
+  check("rooms: the chosen class survives a failed join", pdoc().getElementById("weaponName").textContent === "Pistol");
+
+
   pdoc().getElementById("nameInput").value = "SmokeBot";
+  pdoc().getElementById("roomCodeInput").value = roomCode;
   pdoc().getElementById("startBtn").click();
   await wait(800);
   Object.defineProperty(pdoc(), "pointerLockElement", { get: () => pcanvas, configurable: true });
   pdoc().dispatchEvent(new pwin.Event("pointerlockchange"));
   await wait(300);
   check("pvp: connected status shown", /Connected/.test(pdoc().getElementById("status").textContent), pdoc().getElementById("status").textContent);
+  check("rooms: joined the observer's room by code", pdoc().getElementById("roomCode").textContent === roomCode, pdoc().getElementById("roomCode").textContent);
   check("pvp: HUD shows Pistol", pdoc().getElementById("weaponName").textContent === "Pistol");
 
   // The spawn is random (z from -2 to -28) and the player faces -z, so walk

@@ -19,3 +19,7 @@ Thumbs.db
 
 # scripted self-test output
 selftest-output/
+
+# lifetime stats written by the server
+data/
+web/data/

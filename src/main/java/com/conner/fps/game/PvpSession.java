@@ -47,6 +47,10 @@ public final class PvpSession {
     public int myKills = 0;
     public int myHp = MAX_HP;
     public boolean dead = false;
+    public String roomCode = "";
+    public boolean roomPublic = true;
+    /** Set when the server refused the join (unknown/full room); the game returns to the setup screen. */
+    public String joinError = null;
 
     public PvpSession(GameClient client, String playerName) {
         this.client = client;
@@ -58,7 +62,10 @@ public final class PvpSession {
     }
 
     public String statusText() {
-        return client.isConnected() && myId >= 0 ? "Connected as " + playerName : client.status();
+        if (client.isConnected() && myId >= 0) {
+            return "Connected as " + playerName + (roomPublic ? "" : " - private room " + roomCode + ", share the code");
+        }
+        return client.status();
     }
 
     private Remote ensure(int id, String name) {
@@ -104,6 +111,8 @@ public final class PvpSession {
             case "welcome": {
                 myId = i(msg.get("id"));
                 killLimit = (int) Json.num(msg.get("killLimit"), 10);
+                if (msg.get("room") instanceof String) roomCode = (String) msg.get("room");
+                roomPublic = !Boolean.FALSE.equals(msg.get("roomPublic"));
                 if (msg.get("pos") != null) {
                     float[] p = pos(msg.get("pos"));
                     hooks.teleport(p[0], p[1], p[2]);
@@ -118,6 +127,10 @@ public final class PvpSession {
                     r.targetYaw = -(float) Json.num(pl.get("yaw"), 0);
                     r.yaw = r.targetYaw;
                 }
+                break;
+            }
+            case "error": {
+                joinError = msg.get("reason") instanceof String ? (String) msg.get("reason") : "Couldn't join that room";
                 break;
             }
             case "playerJoined": {

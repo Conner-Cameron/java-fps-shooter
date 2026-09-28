@@ -9,8 +9,11 @@ A first-person shooter with two clients that share one game:
 
 Both offer the same two modes and feature set:
 
-- **PvP Deathmatch** -- online, first to 10 kills wins the lobby. The server owns
-  spawns, validates movement and shots, and resolves hits.
+- **PvP Deathmatch** -- online, first to 10 kills wins the room. The server owns
+  spawns, validates movement and shots, and resolves hits. Pick **Quick Play**
+  (auto-matchmaking into the fullest public room), **Create Room** (private, 4-letter
+  code to share) or **Join by Code**. Rooms hold 8 players; all-time kills/wins
+  show as a leaderboard on the setup screen.
 - **Aim Training** -- private solo range with target blocks that roll their own
   size, hitpoints and drift.
 
@@ -30,6 +33,8 @@ photos and glTF/PBR weapon models), and the protocol.
   sniper scope; a 100-damage knife within arm's reach
 - Hit marker, health/ammo HUD, scoreboard, death overlay, match banner
 - Synthesized sound effects (gunshots per weapon, reload, knife whoosh, hit tick)
+- PvP lobby picker (quick play / create / join by code), room code in the HUD, and a
+  "waking the server" screen for free hosting that has gone to sleep
 - PvP over WebSocket (JDK `java.net.http`, no extra dependency) to the live
   server by default, or any `ws://host:port/ws` you type on the PvP setup screen
 - Weapon models loaded from `assets/manifest.json` (a small glTF/PBR loader and
@@ -89,6 +94,23 @@ java -jar target/java-fps-shooter.jar --selftest pvp --server ws://localhost:808
 It prints `OK`/`FAIL` per check and exits non-zero on failure. The `pvp` scenario
 needs a local server (`java web/server/GameServer.java`).
 
+## Hosting the server (Render free tier)
+
+`render.yaml` + `Dockerfile` run `web/server/GameServer.java` as one web service (site, WebSocket
+and API on one port). Things worth knowing on the free plan:
+
+- **It sleeps after ~15 minutes without traffic** and takes up to a minute to wake. The clients
+  cope: the browser page pings `/health` every few minutes while it's open, and the desktop
+  client polls `/health` first and shows "Waking the server..." instead of a dead screen. Nothing
+  can keep it awake once every client is closed -- that needs a paid plan or an external pinger.
+- **Lifetime stats are ephemeral there.** `STATS_FILE` (default `data/stats.json`) is written every
+  20 s and on shutdown, but the free plan's disk is wiped on each deploy or restart. Point
+  `STATS_FILE` at a persistent disk (paid plans) or another host to keep the leaderboard.
+- Environment: `PORT` (injected by the host), `MAX_ROOM_PLAYERS` (default 8), `STATS_FILE`.
+- Guard rails: 300 connections, 16 KB max frame, 300 messages/s per client, sockets that never
+  join are dropped after 15 s, idle sockets after 75 s (the server pings every 25 s).
+- `GET /health` -> `{"ok":true,"rooms":N,"players":N,"uptimeSec":N}`; `GET /stats` -> leaderboard JSON.
+
 ## Project layout
 
 ```
@@ -99,7 +121,7 @@ src/main/java/com/conner/fps/
   engine/                window, input, shader wrapper, screenshots
   game/                  Player (movement), WeaponState, Practice (targets),
                          PvpSession (match state), Menus
-  net/                   GameClient (WebSocket)
+  net/                   GameClient (WebSocket, wake-up + room join), ServerInfo (/health, /stats)
   render/                Ui + FontAtlas (2D), Hud, GunModels, GlbModel (glTF),
                          meshes, procedural textures
   world/                 World (level + collision), Ramp

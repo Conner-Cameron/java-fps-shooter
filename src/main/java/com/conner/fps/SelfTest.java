@@ -366,13 +366,15 @@ public final class SelfTest implements Game.ScriptHook {
         shot("03_pvp_setup");
         act(() -> {
             observer = new GameClient();
-            observer.connect(server, "Observer");
+            observer.connect(server, "Observer", "create", "");
         });
-        act(() -> game().startPvp("DeskBot", server));
+        until("the observer creates a private room", () -> observerRoom() != null, 20.0);
+        act(() -> game().startPvp("DeskBot", server, "code", observerRoom));
         until("PvP connects and the server welcomes us", () -> game().pvp() != null && game().pvp().myId >= 0, 10.0);
         sec(0.5);
         verify("welcome carries a server-assigned spawn (moved off the default start)",
                 () -> game().player().position.distance(new Vector3f(0, 1.7f, 8)) > 0.5f, "pos " + game().player().position);
+        verify("DeskBot joined the observer's room by its code and the HUD knows it", () -> observerRoom.equals(game().pvp().roomCode) && !game().pvp().roomPublic, null);
         shot("04_pvp_spawn");
 
         // --- movement is accepted by the server's validation (no corrections)
@@ -432,6 +434,24 @@ public final class SelfTest implements Game.ScriptHook {
         verify("Leave Game drops the match and returns to mode select",
                 () -> gameState().equals("MENU") && game().pvp() == null && game().menus().screen() == Menus.Screen.MODE, null);
         until("the other client sees us leave", () -> observerSawLeft(), 4.0);
+
+        // --- a refused join (unknown room code) returns to the PvP setup screen with the reason
+        act(() -> game().startPvp("DeskBot", server, "code", "ZZZZ"));
+        until("an unknown room code sends us back to PvP setup with the reason",
+                () -> game().menuScreenForTest() == Menus.Screen.PVP_SETUP && game().menuHintForTest().contains("No room") && game().pvp() == null, 10.0);
+        sec(0.3);
+        shot("09_pvp_join_refused");
+    }
+
+    private String observerRoom;
+
+    private String observerRoom() {
+        if (observerRoom != null) return observerRoom;
+        Map<String, Object> m;
+        while ((m = observer.poll()) != null) {
+            if ("welcome".equals(m.get("type")) && m.get("room") instanceof String) observerRoom = (String) m.get("room");
+        }
+        return observerRoom;
     }
 
     private boolean observerSawLeft() {

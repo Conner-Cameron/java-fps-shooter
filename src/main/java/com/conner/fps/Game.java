@@ -12,6 +12,7 @@ import com.conner.fps.game.Practice;
 import com.conner.fps.game.PvpSession;
 import com.conner.fps.game.WeaponState;
 import com.conner.fps.net.GameClient;
+import com.conner.fps.net.ServerInfo;
 import com.conner.fps.render.CubeMesh;
 import com.conner.fps.render.EnemyModel;
 import com.conner.fps.render.GunModels;
@@ -82,6 +83,8 @@ public class Game implements PvpSession.Hooks {
     private double now = 0;
     private double lastStateSent = 0;
     private String bannerText = null;
+    private String menuHint = "";              // problem shown on the PvP setup screen (refused join, failed connection)
+    private Menus.Screen lastMenuScreen = Menus.Screen.NONE;
     private double bannerUntil = 0;
     private final String serverDefault;
     private double last;
@@ -197,13 +200,16 @@ public class Game implements PvpSession.Hooks {
         if (pvp != null) {
             pvp.poll(this);
             pvp.interpolate(dt);
+            if (pvp.joinError != null) failJoin(pvp.joinError);
+            else if (pvp.myId < 0 && pvp.client().failed()) failJoin(pvp.client().status());
         }
         weapons.finishReloadIfDue(now);
         hitMarkerAge += dt;
         hitEffects.removeIf(e -> !e.update(dt));
 
         boolean playing = state == State.PLAYING;
-        boolean dead = pvp != null && pvp.dead;
+        // Until the server has placed us in a room (welcome), input is ignored -- same as being dead.
+        boolean dead = pvp != null && (pvp.dead || pvp.myId < 0);
         if ("training".equals(gameMode)) practice.update(dt, now);
 
         boolean moving = false, sprinting = false;
@@ -338,7 +344,7 @@ public class Game implements PvpSession.Hooks {
     }
 
     private void sendStateIfDue() {
-        if (pvp == null || pvp.dead || !pvp.client().isConnected()) return;
+        if (pvp == null || pvp.dead || pvp.myId < 0 || !pvp.client().isConnected()) return;
         if (now - lastStateSent < 0.05) return;
         lastStateSent = now;
         sendMessage(Json.obj("type", "state",
@@ -419,7 +425,8 @@ public class Game implements PvpSession.Hooks {
                 GameClient client = new GameClient();
                 pvp = new PvpSession(client, a.name);
                 String url = a.server.isEmpty() ? serverDefault : a.server;
-                client.connect(url, a.name);
+                menuHint = "";
+                client.connect(url, a.name, a.roomMode, a.roomCode);
                 beginPlaying();
                 break;
             case Menus.Action.RESUME:
@@ -434,6 +441,34 @@ public class Game implements PvpSession.Hooks {
             default:
                 break;
         }
+    }
+
+    /** The server refused the join, or the connection never came up: back to the PvP setup screen with the reason. */
+    private void failJoin(String reason) {
+        pvp.client().close();
+        pvp = null;
+        gameMode = null;
+        mouseHeld = false;
+        lastStateSent = 0;
+        int keep = weapons.primary;
+        weapons.reset();
+        weapons.primary = keep;
+        weapons.select(keep);
+        player.reset();
+        state = State.MENU;
+        menus.show(Menus.Screen.PVP_SETUP);
+        menuHint = reason;
+        window.setCursorCaptured(false);
+        window.setTitle("Java FPS Shooter");
+    }
+
+    /** Full-screen "connecting" card while a PvP match is starting (covers waking a sleeping host, which can take a minute). */
+    private void drawConnecting(int w, int h) {
+        if (pvp == null || pvp.myId >= 0 || state == State.MENU) return;
+        ui.rect(0, 0, w, h, 0f, 0f, 0f, 0.7f);
+        ui.textCentered(menuFonts.title, "Connecting2026", w / 2f, h / 2f - 50, 1, 1, 1, 1);
+        ui.textCentered(menuFonts.body, pvp.statusText(), w / 2f, h / 2f + 6, 1, 1, 1, 0.85f);
+        ui.textCentered(menuFonts.small, "Esc: pause / leave", w / 2f, h / 2f + 40, 1, 1, 1, 0.55f);
     }
 
     /** Leaves the current game for good -- drops the match connection, resets all game state, and returns to mode select. */
@@ -502,9 +537,15 @@ public class Game implements PvpSession.Hooks {
         if (state != State.MENU) drawHud(h);
         Menus.Action action = new Menus.Action();
         if (menus.screen() != Menus.Screen.NONE) {
-            String hint = pvp != null && menus.screen() == Menus.Screen.PVP_SETUP ? pvp.statusText() : "";
+            String hint = menus.screen() != Menus.Screen.PVP_SETUP ? "" : pvp != null ? pvp.statusText() : menuHint;
+            if (menus.screen() == Menus.Screen.PVP_SETUP && lastMenuScreen != Menus.Screen.PVP_SETUP) {
+                Menus menusRef = menus;
+                ServerInfo.leaderboard(menus.serverUrl().isBlank() ? serverDefault : menus.serverUrl()).thenAccept(menusRef::setLeaders);
+            }
             action = menus.draw(ui, menuFonts, window.cursorX(), window.cursorY(), hint);
         }
+        lastMenuScreen = menus.screen();
+        drawConnecting(w, h);
         ui.end();
 
         renderLoadoutPreviews(w, h);
@@ -580,6 +621,7 @@ public class Game implements PvpSession.Hooks {
             d.maxHealth = PvpSession.MAX_HP;
             d.scoreboard = pvp.scoreboard();
             d.status = pvp.statusText();
+            d.roomCode = pvp.roomCode;
             d.dead = pvp.dead && state == State.PLAYING;
         }
         d.weaponName = spec.name;
@@ -688,10 +730,25 @@ public class Game implements PvpSession.Hooks {
     }
 
     public void startPvp(String name, String server) {
+        startPvp(name, server, "quick", "");
+    }
+
+    public void startPvp(String name, String server, String roomMode, String roomCode) {
         Menus.Action a = new Menus.Action();
         a.type = Menus.Action.START_PVP;
         a.name = name;
         a.server = server;
+        a.roomMode = roomMode;
+        a.roomCode = roomCode;
         applyMenuAction(a);
+    }
+
+    /** Test hooks. */
+    public String menuHintForTest() {
+        return menuHint;
+    }
+
+    public Menus.Screen menuScreenForTest() {
+        return menus.screen();
     }
 }

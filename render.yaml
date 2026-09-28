@@ -4,4 +4,9 @@ services:
     env: docker
     plan: free
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /
+    healthCheckPath: /health
+    envVars:
+      - key: MAX_ROOM_PLAYERS      # players per room (quick play fills one, then opens the next)
+        value: "8"
+      - key: STATS_FILE            # lifetime kills/deaths/wins. The free plan's disk is wiped on every
+        value: /app/data/stats.json  # deploy/restart; attach a persistent disk here to keep it (paid plans)

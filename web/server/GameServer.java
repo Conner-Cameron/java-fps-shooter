@@ -34,6 +34,20 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Run with: java GameServer.java   (JDK 17+, no build step needed)
  * Reads the port from the PORT env var (falls back to 8080) so it drops
  * straight into hosts like Render/Railway that inject that variable.
+ *
+ * Lobbies: every match lives in a Room (up to MAX_ROOM_PLAYERS, env
+ * MAX_ROOM_PLAYERS, default 8). A socket does nothing until it sends
+ *   {"type":"join","name":"...","mode":"quick"|"create"|"code","code":"ABCD"}
+ * quick  = the fullest public room with space (else a new public one)
+ * create = a new private room; the welcome carries its 4-letter code
+ * code   = join that room, or get {"type":"error","reason":"..."} and be closed
+ * The welcome also carries "room", "roomPublic" and "maxPlayers"; every later
+ * broadcast (state, damage, kill, respawn, ...) stays inside the room.
+ *
+ * Plain HTTP extras: GET /health (liveness + counts, used by the host and by
+ * clients waking a sleeping free-tier server) and GET /stats (lifetime
+ * leaderboard). Lifetime kills/deaths/wins are saved to STATS_FILE (default
+ * data/stats.json) -- only durable where the host keeps that disk between runs.
  */
 public class GameServer {
     private static final String WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -224,24 +238,251 @@ public class GameServer {
         return WEAPON_MAG_SIZE.clone();
     }
 
-    private static final Map<Integer, Player> players = new ConcurrentHashMap<>();
+    // ------------------------------------------------------------- rooms
+    // Every match lives in a Room with its own roster, scores and spawns.
+    // Players join by "quick" play (the fullest public room with space, else a
+    // new one), by creating a private room, or by its 4-character code.
+
+    static final int MAX_PLAYERS_PER_ROOM = envInt("MAX_ROOM_PLAYERS", 8);
+    static final int MAX_CONNECTIONS = envInt("MAX_CONNECTIONS", 300);
+    static final int MAX_FRAME_BYTES = 16 * 1024;       // no legitimate message is anywhere near this
+    static final int MAX_MESSAGES_PER_SECOND = 300;     // a real client sends ~30/s at its busiest
+    static final long JOIN_TIMEOUT_MS = 15_000;         // a socket that never says "join" gets dropped
+    static final int IDLE_TIMEOUT_MS = 75_000;          // pings every 25s keep a healthy connection well inside this
+    private static final String ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
+
+    static final class Room {
+        final String code;
+        final boolean isPublic;
+        final Map<Integer, Player> players = new ConcurrentHashMap<>();
+
+        Room(String code, boolean isPublic) {
+            this.code = code;
+            this.isPublic = isPublic;
+        }
+
+        boolean isFull() {
+            return players.size() >= MAX_PLAYERS_PER_ROOM;
+        }
+
+        void broadcast(String json) {
+            for (Player p : players.values()) p.sendText(json);
+        }
+
+        void broadcastExcept(int excludeId, String json) {
+            for (Player p : players.values()) {
+                if (p.id != excludeId) p.sendText(json);
+            }
+        }
+    }
+
+    private static final Map<String, Room> rooms = new ConcurrentHashMap<>();
+    private static final Object roomLock = new Object(); // serializes room lookup/creation/removal with joins
+    private static final java.util.Set<Player> connected = ConcurrentHashMap.newKeySet();
     private static final AtomicInteger nextId = new AtomicInteger(1);
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private static final Random random = new Random();
+    private static final long STARTED_AT = System.currentTimeMillis();
     private static String staticRoot;
+    private static Stats stats;
+
+    private static int envInt(String name, int fallback) {
+        try {
+            String v = System.getenv(name);
+            return v == null || v.isBlank() ? fallback : Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static String newRoomCode() {
+        while (true) {
+            StringBuilder b = new StringBuilder();
+            for (int i = 0; i < 4; i++) b.append(ROOM_CODE_ALPHABET.charAt(random.nextInt(ROOM_CODE_ALPHABET.length())));
+            if (!rooms.containsKey(b.toString())) return b.toString();
+        }
+    }
+
+    /**
+     * Puts a player in a room according to how they asked to join. Returns null on
+     * success or a short human-readable reason if they can't join.
+     */
+    private static String placeInRoom(Player p, String mode, String code) {
+        synchronized (roomLock) {
+            Room room = null;
+            if ("code".equals(mode)) {
+                room = rooms.get(code);
+                if (room == null) return "No room with that code";
+                if (room.isFull()) return "That room is full";
+            } else if ("create".equals(mode)) {
+                room = new Room(newRoomCode(), false);
+                rooms.put(room.code, room);
+            } else { // quick play: the fullest public room that still has space, else a new one
+                for (Room r : rooms.values()) {
+                    if (r.isPublic && !r.isFull() && (room == null || r.players.size() > room.players.size())) room = r;
+                }
+                if (room == null) {
+                    room = new Room(newRoomCode(), true);
+                    rooms.put(room.code, room);
+                }
+            }
+            p.room = room;
+            p.pos = randomSpawn(room, p);
+            p.syncPendingSinceMs = System.currentTimeMillis();
+            room.players.put(p.id, p);
+            return null;
+        }
+    }
+
+    private static void leaveRoom(Player p) {
+        Room room;
+        synchronized (roomLock) {
+            room = p.room;
+            if (room == null) return;
+            p.room = null;
+            room.players.remove(p.id);
+            if (room.players.isEmpty()) rooms.remove(room.code);
+        }
+        room.broadcast(Json.obj("type", "playerLeft", "id", p.id));
+    }
+
+    /** Names are shown in other players' HUDs: keep them short and free of markup characters. */
+    private static String sanitizeName(Object raw, int fallbackId) {
+        if (raw instanceof String) {
+            StringBuilder b = new StringBuilder();
+            for (char c : ((String) raw).trim().toCharArray()) {
+                if (Character.isLetterOrDigit(c) || c == ' ' || c == '_' || c == '-' || c == '.') b.append(c);
+                if (b.length() >= 16) break;
+            }
+            String s = b.toString().trim();
+            if (!s.isEmpty()) return s;
+        }
+        return "Player" + fallbackId;
+    }
+
+    private static String sanitizeCode(Object raw) {
+        if (!(raw instanceof String)) return "";
+        StringBuilder b = new StringBuilder();
+        for (char c : ((String) raw).toUpperCase().toCharArray()) {
+            if (ROOM_CODE_ALPHABET.indexOf(c) >= 0) b.append(c);
+            if (b.length() >= 4) break;
+        }
+        return b.toString();
+    }
 
     public static void main(String[] args) throws IOException {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", args.length > 0 ? args[0] : "8080"));
         staticRoot = new File("web").isDirectory() ? "web" : ".";
         loadMap(new File(staticRoot, "map.json"));
+        stats = new Stats(new File(System.getenv().getOrDefault("STATS_FILE", "data/stats.json")));
+        scheduler.scheduleAtFixedRate(stats::saveIfDirty, 20, 20, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(GameServer::pingEveryone, 25, 25, TimeUnit.SECONDS);
+        Runtime.getRuntime().addShutdownHook(new Thread(stats::saveIfDirty));
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("Serving " + new File(staticRoot).getAbsolutePath() + " on port " + port);
+            System.out.println("Serving " + new File(staticRoot).getAbsolutePath() + " on port " + port
+                    + " (max " + MAX_PLAYERS_PER_ROOM + " players/room, stats: " + stats.describe() + ")");
             while (true) {
                 Socket socket = serverSocket.accept();
                 Thread thread = new Thread(() -> handleConnection(socket));
                 thread.setDaemon(true);
                 thread.start();
+            }
+        }
+    }
+
+    /** WebSocket ping to every connection: keeps proxies from idling them out and lets us notice dead peers. */
+    private static void pingEveryone() {
+        for (Player p : connected) p.sendControl(0x9, new byte[0]);
+    }
+
+    // ------------------------------------------------------ lifetime stats
+    // Kills/deaths/wins per player name (names aren't authenticated -- there are no
+    // accounts). Kept in memory and written to STATS_FILE (default data/stats.json)
+    // every 20s and on shutdown. The file only survives restarts if the host keeps
+    // that path on persistent storage; without it the leaderboard starts fresh
+    // each time (e.g. a free-tier container's filesystem is wiped on redeploy).
+
+    static final class Stats {
+        static final class Rec {
+            final String name;
+            int kills, deaths, wins;
+
+            Rec(String name) {
+                this.name = name;
+            }
+        }
+
+        private final Map<String, Rec> byName = new java.util.LinkedHashMap<>();
+        private final File file;
+        private volatile boolean dirty = false;
+        private boolean writable = false;
+
+        @SuppressWarnings("unchecked")
+        Stats(File file) {
+            this.file = file;
+            try {
+                if (file.isFile()) {
+                    Map<String, Object> root = Json.parseObject(Files.readString(file.toPath()));
+                    for (Object o : (List<Object>) root.get("players")) {
+                        Map<String, Object> m = (Map<String, Object>) o;
+                        Rec r = new Rec((String) m.get("name"));
+                        r.kills = ((Number) m.get("kills")).intValue();
+                        r.deaths = ((Number) m.get("deaths")).intValue();
+                        r.wins = ((Number) m.get("wins")).intValue();
+                        byName.put(r.name.toLowerCase(), r);
+                    }
+                }
+                File dir = file.getAbsoluteFile().getParentFile();
+                if (dir != null) dir.mkdirs();
+                writable = dir != null && dir.isDirectory() && dir.canWrite();
+            } catch (Exception e) {
+                System.err.println("Could not read stats file " + file + ": " + e);
+            }
+        }
+
+        String describe() {
+            return (writable ? "saving to " : "in-memory only, not writable: ") + file + ", " + byName.size() + " players loaded";
+        }
+
+        private Rec rec(String name) {
+            return byName.computeIfAbsent(name.toLowerCase(), k -> new Rec(name));
+        }
+
+        synchronized void addKill(String shooter, String victim) {
+            rec(shooter).kills++;
+            rec(victim).deaths++;
+            dirty = true;
+        }
+
+        synchronized void addWin(String winner) {
+            rec(winner).wins++;
+            dirty = true;
+        }
+
+        synchronized String leaderboardJson(int n) {
+            List<Rec> all = new ArrayList<>(byName.values());
+            all.sort((a, b) -> b.kills != a.kills ? b.kills - a.kills : b.wins - a.wins);
+            List<String> rows = new ArrayList<>();
+            for (int i = 0; i < Math.min(n, all.size()); i++) {
+                Rec r = all.get(i);
+                rows.add(Json.obj("name", r.name, "kills", r.kills, "deaths", r.deaths, "wins", r.wins));
+            }
+            return Json.obj("persistent", writable, "leaderboard", Json.raw("[" + String.join(",", rows) + "]"));
+        }
+
+        synchronized void saveIfDirty() {
+            if (!dirty || !writable) return;
+            try {
+                List<String> rows = new ArrayList<>();
+                for (Rec r : byName.values()) rows.add(Json.obj("name", r.name, "kills", r.kills, "deaths", r.deaths, "wins", r.wins));
+                String text = Json.obj("players", Json.raw("[" + String.join(",", rows) + "]"));
+                File tmp = new File(file.getPath() + ".tmp");
+                Files.writeString(tmp.toPath(), text);
+                Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                dirty = false;
+            } catch (IOException e) {
+                System.err.println("Could not save stats: " + e);
             }
         }
     }
@@ -261,7 +502,7 @@ public class GameServer {
             if ("websocket".equalsIgnoreCase(headers.getOrDefault("upgrade", ""))) {
                 handleWebSocket(socket, headers);
             } else {
-                handleHttp(socket, requestLine);
+                handleHttp(socket, requestLine, headers);
             }
         } catch (Exception e) {
             try {
@@ -307,14 +548,17 @@ public class GameServer {
 
     // --------------------------------------------------------- static HTTP
 
-    private static void handleHttp(Socket socket, String requestLine) throws IOException {
+    private static final Map<String, byte[]> gzipCache = new ConcurrentHashMap<>(); // key: etag + path
+
+    private static void handleHttp(Socket socket, String requestLine, Map<String, String> headers) throws IOException {
         OutputStream out = socket.getOutputStream();
         String[] parts = requestLine.split(" ");
-        if (parts.length < 2 || !parts[0].equals("GET")) {
-            writeResponse(out, 405, "text/plain", "Method Not Allowed".getBytes(StandardCharsets.UTF_8));
+        if (parts.length < 2 || !(parts[0].equals("GET") || parts[0].equals("HEAD"))) {
+            writeResponse(out, 405, "text/plain", "Method Not Allowed".getBytes(StandardCharsets.UTF_8), null);
             socket.close();
             return;
         }
+        boolean headOnly = parts[0].equals("HEAD");
 
         String path = parts[1];
         int q = path.indexOf('?');
@@ -322,27 +566,84 @@ public class GameServer {
         if (path.equals("/")) path = "/index.html";
 
         if (path.contains("..")) {
-            writeResponse(out, 400, "text/plain", "Bad Request".getBytes(StandardCharsets.UTF_8));
+            writeResponse(out, 400, "text/plain", "Bad Request".getBytes(StandardCharsets.UTF_8), null);
+            socket.close();
+            return;
+        }
+
+        // Liveness/monitoring: what Render's health check hits, and what a wake-up screen polls.
+        if (path.equals("/health")) {
+            writeResponse(out, 200, "application/json; charset=utf-8", healthJson().getBytes(StandardCharsets.UTF_8),
+                    "Cache-Control: no-store\r\n");
+            socket.close();
+            return;
+        }
+        if (path.equals("/stats")) {
+            writeResponse(out, 200, "application/json; charset=utf-8", stats.leaderboardJson(10).getBytes(StandardCharsets.UTF_8),
+                    "Cache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\n");
             socket.close();
             return;
         }
 
         File file = new File(staticRoot, path.substring(1));
         if (!file.isFile()) {
-            writeResponse(out, 404, "text/plain", ("Not found: " + path).getBytes(StandardCharsets.UTF_8));
+            writeResponse(out, 404, "text/plain", ("Not found: " + path).getBytes(StandardCharsets.UTF_8), null);
             socket.close();
             return;
         }
 
-        writeResponse(out, 200, contentType(path), Files.readAllBytes(file.toPath()));
+        // Caching: code/data (html/js/json/css) always revalidates via ETag -- a 304 costs a few
+        // hundred bytes, and a deploy is picked up immediately; art (png/glb/...) is cached for a day.
+        String etag = "\"" + Long.toHexString(file.lastModified()) + "-" + Long.toHexString(file.length()) + "\"";
+        String type = contentType(path);
+        boolean textual = type.startsWith("text/") || type.startsWith("application/javascript") || type.startsWith("application/json");
+        String cacheControl = textual ? "no-cache" : "public, max-age=86400";
+        String extra = "ETag: " + etag + "\r\nCache-Control: " + cacheControl + "\r\nVary: Accept-Encoding\r\n";
+
+        if (etag.equals(headers.get("if-none-match"))) {
+            writeResponse(out, 304, type, new byte[0], extra);
+            socket.close();
+            return;
+        }
+
+        byte[] body = Files.readAllBytes(file.toPath());
+        if (textual && headers.getOrDefault("accept-encoding", "").contains("gzip")) {
+            byte[] gz = gzipCache.get(etag + path);
+            if (gz == null) {
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                try (java.util.zip.GZIPOutputStream g = new java.util.zip.GZIPOutputStream(bos)) {
+                    g.write(body);
+                }
+                gz = bos.toByteArray();
+                gzipCache.put(etag + path, gz);
+            }
+            body = gz;
+            extra += "Content-Encoding: gzip\r\n";
+        }
+        writeResponse(out, 200, type, headOnly ? new byte[0] : body, extra, headOnly ? body.length : -1);
         socket.close();
     }
 
-    private static void writeResponse(OutputStream out, int status, String contentType, byte[] body) throws IOException {
-        String statusText = status == 200 ? "OK" : status == 404 ? "Not Found" : status == 400 ? "Bad Request" : "Error";
+    private static String healthJson() {
+        int players = 0;
+        for (Room r : rooms.values()) players += r.players.size();
+        return Json.obj("ok", true, "rooms", rooms.size(), "players", players,
+                "uptimeSec", (System.currentTimeMillis() - STARTED_AT) / 1000);
+    }
+
+    private static void writeResponse(OutputStream out, int status, String contentType, byte[] body, String extraHeaders) throws IOException {
+        writeResponse(out, status, contentType, body, extraHeaders, -1);
+    }
+
+    /** {@code declaredLength >= 0} overrides Content-Length (HEAD requests advertise the size but send no body). */
+    private static void writeResponse(OutputStream out, int status, String contentType, byte[] body, String extraHeaders,
+                                      int declaredLength) throws IOException {
+        String statusText = status == 200 ? "OK" : status == 304 ? "Not Modified" : status == 404 ? "Not Found"
+                : status == 400 ? "Bad Request" : status == 503 ? "Service Unavailable" : "Error";
         String header = "HTTP/1.1 " + status + " " + statusText + "\r\n"
                 + "Content-Type: " + contentType + "\r\n"
-                + "Content-Length: " + body.length + "\r\n"
+                + "Content-Length: " + (declaredLength >= 0 ? declaredLength : body.length) + "\r\n"
+                + (extraHeaders != null ? extraHeaders : "")
                 + "Connection: close\r\n\r\n";
         out.write(header.getBytes(StandardCharsets.US_ASCII));
         out.write(body);
@@ -375,6 +676,11 @@ public class GameServer {
                 MessageDigest.getInstance("SHA-1").digest((key + WS_MAGIC).getBytes(StandardCharsets.UTF_8)));
 
         OutputStream rawOut = socket.getOutputStream();
+        if (connected.size() >= MAX_CONNECTIONS) {
+            writeResponse(rawOut, 503, "text/plain", "Server full".getBytes(StandardCharsets.UTF_8), null);
+            socket.close();
+            return;
+        }
         String response = "HTTP/1.1 101 Switching Protocols\r\n"
                 + "Upgrade: websocket\r\n"
                 + "Connection: Upgrade\r\n"
@@ -384,27 +690,42 @@ public class GameServer {
 
         int id = nextId.getAndIncrement();
         Player player = new Player(id, socket);
-        players.put(id, player);
-        sendWelcome(player);
+        connected.add(player);
+        // A connection that never asks to join is just holding a socket open: drop it.
+        scheduler.schedule(() -> {
+            if (player.room == null) closeQuietly(socket);
+        }, JOIN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
         try {
+            socket.setSoTimeout(IDLE_TIMEOUT_MS);
             InputStream in = socket.getInputStream();
             String msg;
-            while ((msg = readTextFrame(in)) != null) {
+            while ((msg = readTextFrame(in, player)) != null) {
+                long now = System.currentTimeMillis();
+                if (now - player.rateWindowStart >= 1000) {
+                    player.rateWindowStart = now;
+                    player.rateCount = 0;
+                }
+                if (++player.rateCount > MAX_MESSAGES_PER_SECOND) break; // flooding: disconnect
                 handleMessage(player, msg);
             }
         } catch (IOException ignored) {
         } finally {
-            players.remove(id);
-            broadcast(Json.obj("type", "playerLeft", "id", id));
-            try {
-                socket.close();
-            } catch (IOException ignored2) {
-            }
+            connected.remove(player);
+            leaveRoom(player);
+            closeQuietly(socket);
         }
     }
 
-    private static String readTextFrame(InputStream in) throws IOException {
+    private static void closeQuietly(Socket socket) {
+        try {
+            socket.close();
+        } catch (IOException ignored) {
+        }
+    }
+
+    /** Reads the next text message; answers pings, ignores pongs, and refuses frames larger than any real message. */
+    private static String readTextFrame(InputStream in, Player player) throws IOException {
         while (true) {
             int b0 = in.read();
             if (b0 == -1) return null;
@@ -420,6 +741,7 @@ public class GameServer {
                 len = 0;
                 for (int i = 0; i < 8; i++) len = (len << 8) | (in.read() & 0xFF);
             }
+            if (len < 0 || len > MAX_FRAME_BYTES) throw new IOException("frame too large: " + len);
 
             byte[] mask = new byte[4];
             if (masked) readFully(in, mask, 4);
@@ -430,8 +752,9 @@ public class GameServer {
                 for (int i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
             }
 
-            if (opcode == 0x8) return null;       // close
-            if (opcode == 0x9 || opcode == 0xA) continue; // ping/pong -- ignored, not needed for this use case
+            if (opcode == 0x8) return null;                          // close
+            if (opcode == 0x9) { player.sendControl(0xA, payload); continue; } // ping -> pong
+            if (opcode == 0xA) continue;                             // pong (reading it already reset the idle timer)
             if (opcode == 0x1) return new String(payload, StandardCharsets.UTF_8);
             // binary/continuation frames: unused by this protocol, ignore
         }
@@ -462,18 +785,30 @@ public class GameServer {
         volatile long lastCorrectionMs = 0;
         volatile long syncPendingSinceMs = System.currentTimeMillis(); // when awaitingSync last became true
 
+        volatile Room room;          // null until the player has joined one
+        long rateWindowStart = 0;    // message-rate limiting (see MAX_MESSAGES_PER_SECOND)
+        int rateCount = 0;
+
         Player(int id, Socket socket) {
             this.id = id;
             this.socket = socket;
             this.name = "Player" + id;
-            this.pos = randomSpawn();
+            this.pos = new double[]{0, 1.7, 8}; // replaced with a real spawn when a room is chosen
         }
 
-        synchronized void sendText(String text) {
+        void sendText(String text) {
+            sendFrame(0x1, text.getBytes(StandardCharsets.UTF_8));
+        }
+
+        /** Ping (0x9) / pong (0xA) control frames. */
+        void sendControl(int opcode, byte[] payload) {
+            sendFrame(opcode, payload.length > 125 ? new byte[0] : payload);
+        }
+
+        private synchronized void sendFrame(int opcode, byte[] payload) {
             try {
-                byte[] payload = text.getBytes(StandardCharsets.UTF_8);
                 ByteArrayOutputStream frame = new ByteArrayOutputStream();
-                frame.write(0x81);
+                frame.write(0x80 | opcode);
                 int len = payload.length;
                 if (len <= 125) {
                     frame.write(len);
@@ -495,10 +830,6 @@ public class GameServer {
         }
     }
 
-    private static double[] randomSpawn() {
-        return randomSpawn(null);
-    }
-
     /**
      * Picks a random spawn point, retrying up to SPAWN_ATTEMPTS times to find
      * one at least MIN_SPAWN_DISTANCE from every other alive player (dead
@@ -508,7 +839,7 @@ public class GameServer {
      * attempt clears the minimum, falls back to whichever candidate ended up
      * farthest from the nearest player, rather than an infinite retry loop.
      */
-    private static double[] randomSpawn(Player excludeSelf) {
+    private static double[] randomSpawn(Room room, Player excludeSelf) {
         double[] best = null;
         double bestMinDist = -1;
 
@@ -518,7 +849,7 @@ public class GameServer {
             if (spawnBlocked(x, z)) continue; // never spawn inside a wall/tree/rock
 
             double minDist = Double.MAX_VALUE;
-            for (Player p : players.values()) {
+            for (Player p : room.players.values()) {
                 if (p == excludeSelf || !p.alive) continue;
                 double dx = p.pos[0] - x;
                 double dz = p.pos[2] - z;
@@ -537,19 +868,11 @@ public class GameServer {
         return best != null ? best : new double[]{0, 1.7, 8}; // open ground
     }
 
-    private static void broadcast(String json) {
-        for (Player p : players.values()) p.sendText(json);
-    }
-
-    private static void broadcastExcept(int excludeId, String json) {
-        for (Player p : players.values()) {
-            if (p.id != excludeId) p.sendText(json);
-        }
-    }
-
+    /** Sent once the player has been placed in a room. */
     private static void sendWelcome(Player player) {
+        Room room = player.room;
         List<String> others = new ArrayList<>();
-        for (Player p : players.values()) {
+        for (Player p : room.players.values()) {
             if (p.id == player.id) continue;
             others.add(Json.obj("id", p.id, "name", p.name, "kills", p.kills, "hp", p.hp, "pos", p.pos, "yaw", p.yaw, "pitch", p.pitch));
         }
@@ -558,8 +881,11 @@ public class GameServer {
                 "id", player.id,
                 "pos", player.pos, // server-assigned spawn; the client teleports here
                 "killLimit", KILL_LIMIT,
+                "room", room.code,
+                "roomPublic", room.isPublic,
+                "maxPlayers", MAX_PLAYERS_PER_ROOM,
                 "players", Json.raw("[" + String.join(",", others) + "]")));
-        broadcastExcept(player.id, Json.obj("type", "playerJoined", "id", player.id, "name", player.name));
+        room.broadcastExcept(player.id, Json.obj("type", "playerJoined", "id", player.id, "name", player.name));
     }
 
     // ------------------------------------------------------------ messages
@@ -575,14 +901,21 @@ public class GameServer {
         Object type = obj.get("type");
         if (!(type instanceof String)) return;
 
+        if (!"join".equals(type) && player.room == null) return; // nothing but "join" is meaningful before placement
+
         switch ((String) type) {
             case "join": {
-                Object nameObj = obj.get("name");
-                if (nameObj instanceof String && !((String) nameObj).isBlank()) {
-                    String trimmed = ((String) nameObj).trim();
-                    player.name = trimmed.substring(0, Math.min(20, trimmed.length()));
-                    broadcast(Json.obj("type", "playerJoined", "id", player.id, "name", player.name));
+                if (player.room != null) break; // already in a room: leaving means reconnecting
+                player.name = sanitizeName(obj.get("name"), player.id);
+                Object modeObj = obj.get("mode");
+                String mode = "quick".equals(modeObj) || "create".equals(modeObj) || "code".equals(modeObj) ? (String) modeObj : "quick";
+                String failure = placeInRoom(player, mode, sanitizeCode(obj.get("code")));
+                if (failure != null) {
+                    player.sendText(Json.obj("type", "error", "reason", failure));
+                    scheduler.schedule(() -> closeQuietly(player.socket), 200, TimeUnit.MILLISECONDS);
+                    break;
                 }
+                sendWelcome(player);
                 break;
             }
             case "state": {
@@ -639,7 +972,8 @@ public class GameServer {
 
     @SuppressWarnings("unchecked")
     private static void handleShoot(Player shooter, Map<String, Object> obj) {
-        if (!shooter.alive || shooter.reloading) return;
+        Room room = shooter.room;
+        if (room == null || !shooter.alive || shooter.reloading) return;
 
         int weaponIdx = clampWeapon(shooter.weapon);
         boolean melee = WEAPON_MELEE[weaponIdx];
@@ -680,7 +1014,7 @@ public class GameServer {
 
         Player closest = null;
         double closestDist = Double.MAX_VALUE;
-        for (Player other : players.values()) {
+        for (Player other : room.players.values()) {
             if (other.id == shooter.id || !other.alive) continue;
             Double dist = intersectAABB(origin, dir, other.pos);
             if (dist != null && dist < obstacleDist && dist <= WEAPON_RANGE[weaponIdx] && dist < closestDist) {
@@ -697,7 +1031,7 @@ public class GameServer {
 
         int damage = WEAPON_DAMAGE[weaponIdx];
         victim.hp = Math.max(0, victim.hp - damage);
-        broadcast(Json.obj(
+        room.broadcast(Json.obj(
                 "type", "damage", "shooterId", shooter.id, "victimId", victim.id,
                 "damage", damage, "victimHp", victim.hp));
 
@@ -708,18 +1042,21 @@ public class GameServer {
 
         victim.alive = false;
         shooter.kills++;
-        broadcast(Json.obj("type", "kill", "shooterId", shooter.id, "victimId", victim.id, "shooterKills", shooter.kills));
+        stats.addKill(shooter.name, victim.name);
+        room.broadcast(Json.obj("type", "kill", "shooterId", shooter.id, "victimId", victim.id, "shooterKills", shooter.kills));
 
         if (shooter.kills >= KILL_LIMIT) {
-            broadcast(Json.obj("type", "matchOver", "winnerId", shooter.id, "winnerName", shooter.name, "score", shooter.kills));
+            stats.addWin(shooter.name);
+            room.broadcast(Json.obj("type", "matchOver", "winnerId", shooter.id, "winnerName", shooter.name, "score", shooter.kills));
             scheduler.schedule(() -> {
-                for (Player p : players.values()) p.kills = 0;
-                broadcast(Json.obj("type", "matchReset"));
+                for (Player p : room.players.values()) p.kills = 0;
+                room.broadcast(Json.obj("type", "matchReset"));
             }, MATCH_RESET_DELAY_MS, TimeUnit.MILLISECONDS);
         }
 
         scheduler.schedule(() -> {
-            victim.pos = randomSpawn(victim); // excluded defensively; they're also not `alive` yet at this point anyway
+            if (victim.room != room) return; // left (or the room emptied) while waiting to respawn
+            victim.pos = randomSpawn(room, victim); // excluded defensively; they're also not `alive` yet at this point anyway
             victim.awaitingSync = true; // ignore movement reports until the client lands at the new spot
             victim.syncPendingSinceMs = System.currentTimeMillis();
             victim.hp = MAX_HP;
@@ -730,7 +1067,7 @@ public class GameServer {
             // rather than a regular "state" update -- other clients snap the avatar to
             // the new spot instead of smoothly interpolating it, so a respawn reads as
             // an instant teleport, not a glide across the map.
-            broadcast(Json.obj("type", "respawn", "id", victim.id, "pos", victim.pos, "hp", victim.hp));
+            room.broadcast(Json.obj("type", "respawn", "id", victim.id, "pos", victim.pos, "hp", victim.hp));
             victim.sendText(Json.obj("type", "ammo", "weapon", clampWeapon(victim.weapon), "ammo", victim.ammo[clampWeapon(victim.weapon)]));
         }, RESPAWN_DELAY_MS, TimeUnit.MILLISECONDS);
 
@@ -827,8 +1164,9 @@ public class GameServer {
     }
 
     private static void handleState(Player p, Map<String, Object> obj) {
+        Room room = p.room;
         double[] to = parseVec3(obj.get("pos"));
-        if (to == null || !p.alive) return;
+        if (room == null || to == null || !p.alive) return;
         long now = System.nanoTime();
 
         if (p.awaitingSync) {
@@ -851,7 +1189,7 @@ public class GameServer {
         } else {
             String reason = validateMove(p, to, now);
             if (reason != null) {
-                if (reason.equals("bounds")) p.pos = randomSpawn(p); // walked/fell off the map: back to a fresh spawn
+                if (reason.equals("bounds")) p.pos = randomSpawn(room, p); // walked/fell off the map: back to a fresh spawn
                 p.awaitingSync = true;
                 p.syncPendingSinceMs = System.currentTimeMillis();
                 sendCorrection(p, reason);
@@ -864,7 +1202,7 @@ public class GameServer {
         Object pitchObj = obj.get("pitch");
         if (yawObj instanceof Number) p.yaw = ((Number) yawObj).doubleValue();
         if (pitchObj instanceof Number) p.pitch = ((Number) pitchObj).doubleValue();
-        broadcastExcept(p.id, Json.obj("type", "state", "id", p.id, "pos", p.pos, "yaw", p.yaw, "pitch", p.pitch));
+        room.broadcastExcept(p.id, Json.obj("type", "state", "id", p.id, "pos", p.pos, "yaw", p.yaw, "pitch", p.pitch));
     }
 
     private static void sendCorrection(Player p, String reason) {
