@@ -1,0 +1,195 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>smoke test (running)</title>
+<!--
+  Drives the real game in an iframe by dispatching the same DOM events a
+  player would, then asserts on the HUD/screens. No pointer lock is possible
+  headless, so isLocked() is faked by overriding document.pointerLockElement
+  inside the frame. Run headless with:
+    chrome --headless=new --virtual-time-budget=60000 --dump-dom http://localhost:8080/tests/smoke.html
+  and look for "SMOKE PASSED" / "FAIL" lines in #results.
+-->
+<style>
+  body { font: 13px monospace; margin: 8px; }
+  iframe { width: 1024px; height: 576px; border: 1px solid #888; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<pre id="results"></pre>
+<iframe id="game" src="/"></iframe>
+<script>
+(async function () { try {
+  const out = document.getElementById("results");
+  let failures = 0;
+  const lines = [];
+  const publish = (done) => { document.title = (done ? "DONE::" : "running::") + lines.join(" | "); };
+  const log = (line) => { out.textContent += line + "\n"; lines.push(line); publish(false); };
+  const check = (name, ok, extra) => {
+    log((ok ? "OK   " : "FAIL ") + name + (ok || extra === undefined ? "" : "  (" + extra + ")"));
+    if (!ok) failures++;
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const vis = (el) => el && !el.hidden && getComputedStyle(el).display !== "none";
+
+  const frame = document.getElementById("game");
+  const win = frame.contentWindow;
+  const errors = [];
+  const warnings = [];
+  win.addEventListener("error", (e) => errors.push(e.message));
+  win.addEventListener("unhandledrejection", (e) => errors.push("rejection: " + (e.reason && e.reason.message || e.reason)));
+  const doc = () => frame.contentDocument;
+  const $ = (sel) => doc().querySelector(sel);
+  const text = (sel) => ($(sel) ? $(sel).textContent : null);
+
+  // wait for the game to finish its async bootstrap (map fetch, modules)
+  for (let i = 0; i < 100 && !(doc() && doc().getElementById("modeSelect") && doc().body.querySelector(":scope > canvas")); i++) await wait(100);
+  await wait(500);
+  win.console.warn = (...a) => { warnings.push(a.join(" ")); };
+  const canvas = doc().body.querySelector(":scope > canvas");
+  check("game canvas created", !!canvas);
+  check("mode select visible on load", vis($("#modeSelect")));
+
+  const lock = () => {
+    Object.defineProperty(doc(), "pointerLockElement", { get: () => canvas, configurable: true });
+    doc().dispatchEvent(new win.Event("pointerlockchange"));
+  };
+  const key = (type, code) => win.dispatchEvent(new win.KeyboardEvent(type, { code, bubbles: true }));
+  const mouse = (type, button) => canvas.dispatchEvent(new win.MouseEvent(type, { button, bubbles: true }));
+  const wheel = () => canvas.dispatchEvent(new win.WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true }));
+
+  // ---------------- Aim Training flow ----------------
+  $("#trainingModeBtn").click();
+  await wait(100);
+  check("training: loadout screen shown after mode pick", vis($("#weaponSelect")) && !vis($("#modeSelect")));
+  check("loadout: 4 weapon cards", doc().querySelectorAll(".weaponCard").length === 4);
+  check("loadout: stats filled from WEAPONS data", /34 damage/.test(text('[data-weapon-stats="1"]') || "") && /24 rounds/.test(text('[data-weapon-stats="1"]') || ""), text('[data-weapon-stats="1"]'));
+  await wait(400); // let the icon preview render a few frames
+  const iconCtx = $('[data-weapon-icon="2"]').getContext("2d");
+  const px = iconCtx.getImageData(0, 0, 160, 120).data;
+  let painted = 0;
+  for (let i = 3; i < px.length; i += 4) if (px[i] > 0) painted++;
+  check("loadout: weapon preview icon actually rendered", painted > 200, painted);
+
+  $('.weaponCard[data-weapon="1"]').click();
+  await wait(100);
+  check("training: setup screen shown after loadout pick", vis($("#trainingSetup")) && !vis($("#weaponSelect")));
+  check("HUD shows the picked weapon (Rifle)", text("#weaponName") === "Rifle", text("#weaponName"));
+
+  $("#startTrainingBtn").click();
+  await wait(200);
+  lock();
+  await wait(300);
+  check("overlay hides once locked", $("#overlay").hidden === true);
+  check("training HUD visible", !$("#trainingHud").hidden);
+
+  mouse("mousedown", 0); mouse("mouseup", 0);
+  await wait(150);
+  check("shooting spends a round (24 -> 23)", text("#ammoCount") === "23", text("#ammoCount"));
+
+  key("keydown", "KeyR"); key("keyup", "KeyR");
+  await wait(300);
+  check("R starts a reload (indicator visible)", !$("#reloadIndicator").classList.contains("hidden"));
+  await wait(1900);
+  check("reload finishes (ammo back to 24)", text("#ammoCount") === "24" && $("#reloadIndicator").classList.contains("hidden"), text("#ammoCount"));
+
+  wheel();
+  await wait(150);
+  check("scroll wheel switches to the knife", text("#weaponName") === "Knife" && text("#ammoCount") === "—", text("#weaponName") + "/" + text("#ammoCount"));
+  mouse("mousedown", 0); mouse("mouseup", 0);
+  await wait(150);
+  key("keydown", "KeyR"); key("keyup", "KeyR");
+  await wait(150);
+  check("knife: swing/R don't touch ammo or reload state", $("#reloadIndicator").classList.contains("hidden"));
+  wheel();
+  await wait(150);
+  check("scroll wheel returns to the primary", text("#weaponName") === "Rifle", text("#weaponName"));
+  key("keydown", "Digit3"); key("keyup", "Digit3");
+  await wait(100);
+  check("number keys no longer switch weapons", text("#weaponName") === "Rifle", text("#weaponName"));
+
+  // Jump + sprint with the primary and with the knife. An exception thrown
+  // inside the frame loop kills requestAnimationFrame -- i.e. the whole game
+  // freezes -- and surfaces here as an uncaught error.
+  const movementBurst = async (label) => {
+    for (const code of ["ShiftLeft", "KeyW", "Space"]) key("keydown", code);
+    await wait(900); // long enough for a full jump arc (rise, ceiling check, fall, landing)
+    key("keyup", "Space"); await wait(300);
+    key("keydown", "Space"); await wait(300); key("keyup", "Space"); // second jump from the ground
+    for (const code of ["ShiftLeft", "KeyW"]) key("keyup", code);
+    await wait(400);
+    check("no exceptions after sprint+jump with " + label, errors.length === 0, errors.join(" | "));
+  };
+  await movementBurst("the primary weapon");
+  wheel(); await wait(150);
+  await movementBurst("the knife");
+  wheel(); await wait(150);
+
+  // ---------------- PvP flow (real server) ----------------
+  const pvpFrame = document.createElement("iframe");
+  pvpFrame.src = "/";
+  document.body.appendChild(pvpFrame);
+  const pwin = pvpFrame.contentWindow;
+  const pwarn = [];
+  const perr = [];
+  pwin.addEventListener("error", (e) => perr.push(e.message));
+  const pdoc = () => pvpFrame.contentDocument;
+  for (let i = 0; i < 100 && !(pdoc() && pdoc().getElementById("modeSelect") && pdoc().body.querySelector(":scope > canvas")); i++) await wait(100);
+  await wait(500);
+  pwin.console.warn = (...a) => { pwarn.push(a.join(" ")); };
+  const pcanvas = pdoc().body.querySelector(":scope > canvas");
+
+  // observer connection: sees other players' broadcast state
+  const seen = [];
+  const observer = new WebSocket("ws://" + location.host + "/ws");
+  observer.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "state") seen.push(m.pos); };
+  await new Promise((r) => (observer.onopen = r));
+  observer.send(JSON.stringify({ type: "join", name: "Observer" }));
+
+  pdoc().getElementById("pvpModeBtn").click();
+  pdoc().querySelector('.weaponCard[data-weapon="0"]').click();
+  pdoc().getElementById("nameInput").value = "SmokeBot";
+  pdoc().getElementById("startBtn").click();
+  await wait(800);
+  Object.defineProperty(pdoc(), "pointerLockElement", { get: () => pcanvas, configurable: true });
+  pdoc().dispatchEvent(new pwin.Event("pointerlockchange"));
+  await wait(300);
+  check("pvp: connected status shown", /Connected/.test(pdoc().getElementById("status").textContent), pdoc().getElementById("status").textContent);
+  check("pvp: HUD shows Pistol", pdoc().getElementById("weaponName").textContent === "Pistol");
+
+  // The spawn is random (z from -2 to -28) and the player faces -z, so walk
+  // toward the middle of the map: forward from a near spawn, backward from a
+  // far one -- walking off the 60x60 ground edge is (correctly) corrected.
+  const spawnZ = seen.length ? seen[seen.length - 1][2] : -10;
+  const walkKey = spawnZ < -15 ? "KeyS" : "KeyW";
+  const walk = (type) => pwin.dispatchEvent(new pwin.KeyboardEvent(type, { code: walkKey, bubbles: true }));
+  const before = seen.length;
+  walk("keydown");
+  await wait(1500);
+  walk("keyup");
+  await wait(300);
+  const moved = seen.slice(before);
+  check("pvp: observer received the player's state broadcasts", moved.length > 5, moved.length);
+  if (moved.length > 2) {
+    const a = moved[0], b = moved[moved.length - 1];
+    const dist = Math.hypot(b[0] - a[0], b[2] - a[2]);
+    check("pvp: holding W moved the player through the server", dist > 2, dist.toFixed(2));
+  }
+  check("pvp: no server position corrections during normal walking", pwarn.filter((w) => /corrected/.test(w)).length === 0, pwarn.join(" | "));
+
+  const allErrors = errors.concat(perr);
+  check("no uncaught JS errors in either game frame", allErrors.length === 0, allErrors.join(" | "));
+
+  log(failures === 0 ? "SMOKE PASSED" : "SMOKE FAILED (" + failures + ")");
+  publish(true);
+  } catch (e) {
+    log("EXCEPTION: " + String((e && e.stack) || e).split("\n").slice(0, 3).join(" ~ "));
+    log("SMOKE FAILED (exception)");
+    publish(true);
+  }
+})();
+</script>
+</body>
+</html>

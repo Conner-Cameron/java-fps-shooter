@@ -456,6 +456,7 @@ public class GameServer {
         double horizBudget = HORIZ_BUDGET_CAP;
         double vertBudget = VERT_BUDGET_CAP;
         volatile long lastCorrectionMs = 0;
+        volatile long syncPendingSinceMs = System.currentTimeMillis(); // when awaitingSync last became true
 
         Player(int id, Socket socket) {
             this.id = id;
@@ -716,6 +717,7 @@ public class GameServer {
         scheduler.schedule(() -> {
             victim.pos = randomSpawn(victim); // excluded defensively; they're also not `alive` yet at this point anyway
             victim.awaitingSync = true; // ignore movement reports until the client lands at the new spot
+            victim.syncPendingSinceMs = System.currentTimeMillis();
             victim.hp = MAX_HP;
             victim.alive = true;
             victim.reloading = false;
@@ -829,8 +831,13 @@ public class GameServer {
             // Server placed this player (join / respawn / correction); ignore
             // whatever the client reports until it confirms it's actually there.
             if (distance(to, p.pos) > SYNC_RADIUS) {
-                sendCorrection(p, String.format("awaiting sync (client at %.1f,%.1f,%.1f, server at %.1f,%.1f,%.1f)",
-                        to[0], to[1], to[2], p.pos[0], p.pos[1], p.pos[2]));
+                // The client was already told where it is (welcome / respawn / the
+                // correction that started this); reports still in flight from its
+                // old spot are expected for a moment, so stay quiet before re-sending.
+                if (System.currentTimeMillis() - p.syncPendingSinceMs > 1500) {
+                    sendCorrection(p, String.format("awaiting sync (client at %.1f,%.1f,%.1f, server at %.1f,%.1f,%.1f)",
+                            to[0], to[1], to[2], p.pos[0], p.pos[1], p.pos[2]));
+                }
                 return;
             }
             p.awaitingSync = false;
@@ -842,6 +849,7 @@ public class GameServer {
             if (reason != null) {
                 if (reason.equals("bounds")) p.pos = randomSpawn(p); // walked/fell off the map: back to a fresh spawn
                 p.awaitingSync = true;
+                p.syncPendingSinceMs = System.currentTimeMillis();
                 sendCorrection(p, reason);
                 return;
             }
