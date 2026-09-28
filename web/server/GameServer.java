@@ -86,18 +86,25 @@ public class GameServer {
     }
 
     private static final int MAX_HP = 100;
-    // index: 0 = pistol, 1 = rifle, 2 = sniper, 3 = SMG (automatic -- client fires it on a timer while held)
-    private static final int[] WEAPON_DAMAGE = {20, 34, 100, 14};
-    private static final long[] WEAPON_COOLDOWN_MS = {150, 300, 1000, 100};
-    private static final int[] WEAPON_MAG_SIZE = {8, 24, 5, 20};
-    private static final long[] WEAPON_RELOAD_MS = {1000, 1600, 2200, 1300};
+    // index: 0 = pistol, 1 = rifle, 2 = sniper, 3 = SMG (automatic -- client
+    // fires it on a timer while held), 4 = knife (melee -- no ammo/reload,
+    // range-limited instead; see WEAPON_MELEE/WEAPON_RANGE below).
+    private static final int[] WEAPON_DAMAGE = {20, 34, 100, 14, 100};
+    private static final long[] WEAPON_COOLDOWN_MS = {150, 300, 1000, 100, 600};
+    private static final int[] WEAPON_MAG_SIZE = {8, 24, 5, 20, 1}; // knife's slot is unused -- melee bypasses ammo entirely
+    private static final long[] WEAPON_RELOAD_MS = {1000, 1600, 2200, 1300, 1}; // unused for the knife
+    private static final boolean[] WEAPON_MELEE = {false, false, false, false, true};
+    // A modified client claiming a "shoot" hit at any distance would trivially
+    // turn the knife into a hitscan one-shot at any range, so the server caps
+    // it here independently of whatever the client's own reach check does.
+    private static final double[] WEAPON_RANGE = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE, 2.2};
 
     private static int clampWeapon(int weapon) {
         return Math.max(0, Math.min(WEAPON_DAMAGE.length - 1, weapon));
     }
 
     private static int[] fullMagazines() {
-        return new int[]{WEAPON_MAG_SIZE[0], WEAPON_MAG_SIZE[1], WEAPON_MAG_SIZE[2], WEAPON_MAG_SIZE[3]};
+        return WEAPON_MAG_SIZE.clone();
     }
 
     private static final Map<Integer, Player> players = new ConcurrentHashMap<>();
@@ -473,7 +480,9 @@ public class GameServer {
                     // reload does not complete in the background.
                     player.reloading = false;
                     player.weapon = newWeapon;
-                    player.sendText(Json.obj("type", "ammo", "weapon", newWeapon, "ammo", player.ammo[newWeapon]));
+                    if (!WEAPON_MELEE[newWeapon]) {
+                        player.sendText(Json.obj("type", "ammo", "weapon", newWeapon, "ammo", player.ammo[newWeapon]));
+                    }
                 }
                 break;
             }
@@ -511,7 +520,8 @@ public class GameServer {
         if (!shooter.alive || shooter.reloading) return;
 
         int weaponIdx = clampWeapon(shooter.weapon);
-        if (shooter.ammo[weaponIdx] <= 0) {
+        boolean melee = WEAPON_MELEE[weaponIdx];
+        if (!melee && shooter.ammo[weaponIdx] <= 0) {
             startReload(shooter, weaponIdx); // out of ammo -- reload automatically
             return;
         }
@@ -524,9 +534,12 @@ public class GameServer {
         if (now - shooter.lastShotTime < WEAPON_COOLDOWN_MS[weaponIdx]) return;
         shooter.lastShotTime = now;
 
-        shooter.ammo[weaponIdx]--;
-        shooter.sendText(Json.obj("type", "ammo", "weapon", weaponIdx, "ammo", shooter.ammo[weaponIdx]));
-        boolean emptiedMag = shooter.ammo[weaponIdx] <= 0;
+        boolean emptiedMag = false;
+        if (!melee) {
+            shooter.ammo[weaponIdx]--;
+            shooter.sendText(Json.obj("type", "ammo", "weapon", weaponIdx, "ammo", shooter.ammo[weaponIdx]));
+            emptiedMag = shooter.ammo[weaponIdx] <= 0;
+        }
 
         List<Object> originList = (List<Object>) obj.get("origin");
         List<Object> dirList = (List<Object>) obj.get("dir");
@@ -546,7 +559,7 @@ public class GameServer {
         for (Player other : players.values()) {
             if (other.id == shooter.id || !other.alive) continue;
             Double dist = intersectAABB(origin, dir, other.pos);
-            if (dist != null && dist < obstacleDist && dist < closestDist) {
+            if (dist != null && dist < obstacleDist && dist <= WEAPON_RANGE[weaponIdx] && dist < closestDist) {
                 closestDist = dist;
                 closest = other;
             }

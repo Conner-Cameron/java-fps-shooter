@@ -57,8 +57,13 @@
     { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200,
       adsFov: 15, adsSpeed: 6, adsMoveMult: 0.35, scope: true, hipSpread: 6.0, adsSpread: 0.05 },
     { name: "SMG", damage: 14, cooldown: 100, magSize: 20, reloadMs: 1300, automatic: true,
-      adsFov: 58, adsSpeed: 14, adsMoveMult: 0.85, hipSpread: 1.8, adsSpread: 0.15 }
+      adsFov: 58, adsSpeed: 14, adsMoveMult: 0.85, hipSpread: 1.8, adsSpread: 0.15 },
+    // Secondary melee weapon, available to every class -- no ammo/ADS, just
+    // a short-range one-shot swing. Not one of the loadout cards; equipped
+    // via mouse-wheel toggle against whatever primary was actually picked.
+    { name: "Knife", damage: 100, cooldown: 600, melee: true, meleeRange: 2.2 }
   ];
+  const KNIFE_INDEX = WEAPONS.length - 1;
 
   // ================================================================
   // World: same arena layout as the desktop version, now dressed with a
@@ -677,6 +682,7 @@
   let reloadEndTime = 0;
 
   function requestReload() {
+    if (WEAPONS[currentWeapon].melee) return; // no ammo, nothing to reload
     if (reloading || ammo[currentWeapon] >= WEAPONS[currentWeapon].magSize) return;
     reloading = true;
     aiming = false; // lower the weapon to reload, same as most FPS games
@@ -724,6 +730,13 @@
       part(accentMat, 0, -0.12, 0.09, 0.07, 0.24, 0.09);
       part(metalMat, 0, 0.02, 0.32, 0.07, 0.08, 0.16);
       flashPos = [0, 0.02, -0.36];
+    } else if (type === 4) {
+      // Knife -- flat blade, small crossguard, grip handle. No muzzle flash
+      // (the flash mesh below still exists but is simply never triggered).
+      part(metalMat, 0, 0, -0.15, 0.02, 0.03, 0.32);
+      part(accentMat, 0, 0, 0.03, 0.07, 0.025, 0.02);
+      part(accentMat, 0, -0.01, 0.13, 0.035, 0.035, 0.17);
+      flashPos = [0, 0, 0.3];
     } else {
       // Rifle (default) -- body/barrel/grip/magazine/stock
       part(metalMat, 0, -0.02, 0.1, 0.12, 0.12, 0.55);
@@ -783,7 +796,10 @@
   const smgMats = makeWeaponPhotoMats("assets/pistol_reference.png", [430, 180, 200, 200], [780, 660, 260, 260]);
   const rifleMats = makeWeaponPhotoMats("assets/sniper_reference.png", [550, 450, 220, 220], [300, 250, 220, 220]);
 
-  const gunModels = [createGunModel(0, pistolMats), createGunModel(1, rifleMats), createGunModel(2, sniperMats), createGunModel(3, smgMats)];
+  // Knife has no reference photo -- createGunModel() falls back to its
+  // original plain procedural metal/accent materials when no customMats
+  // are given, same as every weapon looked before the photo textures.
+  const gunModels = [createGunModel(0, pistolMats), createGunModel(1, rifleMats), createGunModel(2, sniperMats), createGunModel(3, smgMats), createGunModel(4)];
   gunModels.forEach((g, i) => {
     g.position.set(GUN_BASE_POS.x, GUN_BASE_POS.y, GUN_BASE_POS.z);
     g.rotation.y = THREE.MathUtils.degToRad(8);
@@ -1107,6 +1123,7 @@
 
   let gameMode = null; // "pvp" | "training"
   let pendingGameMode = null; // which mode's setup screen to show once a loadout is picked
+  let primaryWeapon = 1; // the class weapon picked on the loadout screen -- what the knife toggle returns to
 
   document.getElementById("pvpModeBtn").addEventListener("click", () => {
     pendingGameMode = "pvp";
@@ -1125,7 +1142,8 @@
   // e.g. the default rifle) and moves on to the mode's own setup screen.
   document.querySelectorAll(".weaponCard").forEach((card) => {
     card.addEventListener("click", () => {
-      selectWeapon(parseInt(card.dataset.weapon, 10));
+      primaryWeapon = parseInt(card.dataset.weapon, 10);
+      selectWeapon(primaryWeapon);
       weaponSelect.hidden = true;
       if (pendingGameMode === "pvp") pvpSetup.hidden = false;
       else trainingSetup.hidden = false;
@@ -1145,6 +1163,16 @@
     if (isLocked() && e.code === "KeyR") requestReload();
   });
   window.addEventListener("keyup", (e) => { keys[e.code] = false; });
+
+  // Knife toggle: the one exception to "loadout is locked in" -- the knife
+  // is a secondary available to every class, freely swappable against
+  // whichever primary was actually picked. Only two slots exist, so any
+  // scroll direction just flips between them.
+  canvas.addEventListener("wheel", (e) => {
+    if (!isLocked() || isDead) return;
+    e.preventDefault();
+    selectWeapon(currentWeapon === KNIFE_INDEX ? primaryWeapon : KNIFE_INDEX);
+  }, { passive: false });
 
   let yaw = -Math.PI / 2;
   let pitch = 0;
@@ -1333,7 +1361,7 @@
     if (e.button === 0) {
       mouseHeld = true;
       shoot();
-    } else if (e.button === 2) {
+    } else if (e.button === 2 && !WEAPONS[currentWeapon].melee) { // no aiming down a knife
       aiming = true;
     }
   });
@@ -1389,7 +1417,50 @@
       .normalize();
   }
 
+  // Shared by shoot() and meleeAttack(): applies damage to whichever local
+  // practice-bot target the ray actually reached first (nothing behind an
+  // obstacle counts), and respawns/glows it the same way either weapon type.
+  function resolveTargetHit(hits, obstacleDist) {
+    if (hits.length === 0 || hits[0].distance >= obstacleDist) return;
+    const hitMesh = hits[0].object;
+    const target = targets.find((t) => t.mesh === hitMesh);
+    target.hp -= WEAPONS[currentWeapon].damage;
+    triggerHitFeedback();
+
+    if (target.hp <= 0) {
+      // Size is baked into the geometry (and the hazard texture's tiling
+      // scales with it), so a fresh size means a fresh mesh rather than
+      // mutating the old one in place.
+      scene.remove(target.mesh);
+      target.mesh.geometry.dispose();
+      if (target.mesh.material.map) target.mesh.material.map.dispose();
+      target.mesh.material.dispose();
+
+      const [x, y, z] = randomArenaPosition(1 + Math.random() * 3.5);
+      const size = randomTargetSize();
+      target.mesh = addBox([x, y, z], [size, size, size], 0xffffff, hazardTexture, 1.2);
+      target.size = size;
+      target.home.set(x, y, z);
+      target.motion = randomTargetMotion();
+      target.age = 0;
+      target.maxHp = randomTargetHp();
+      target.hp = target.maxHp;
+      target.flashUntil = 0;
+      score++;
+      scoreEl.textContent = String(score);
+    } else {
+      // Briefly glow so a hit that didn't destroy the block still reads
+      // as "damaged" rather than looking like nothing happened.
+      target.mesh.material.emissive.setHex(0x554400);
+      target.flashUntil = performance.now() + 120;
+    }
+  }
+
   function shoot() {
+    if (WEAPONS[currentWeapon].melee) {
+      meleeAttack();
+      return;
+    }
     if (reloading) return;
     if (ammo[currentWeapon] <= 0) {
       requestReload(); // out of ammo -- reload automatically
@@ -1418,41 +1489,7 @@
     const obstacleHits = raycaster.intersectObjects(bulletBlockers, true);
     const obstacleDist = obstacleHits.length > 0 ? obstacleHits[0].distance : Infinity;
 
-    const hits = raycaster.intersectObjects(targets.map((t) => t.mesh));
-    if (hits.length > 0 && hits[0].distance < obstacleDist) {
-      const hitMesh = hits[0].object;
-      const target = targets.find((t) => t.mesh === hitMesh);
-      target.hp -= WEAPONS[currentWeapon].damage;
-      triggerHitFeedback();
-
-      if (target.hp <= 0) {
-        // Size is baked into the geometry (and the hazard texture's tiling
-        // scales with it), so a fresh size means a fresh mesh rather than
-        // mutating the old one in place.
-        scene.remove(target.mesh);
-        target.mesh.geometry.dispose();
-        if (target.mesh.material.map) target.mesh.material.map.dispose();
-        target.mesh.material.dispose();
-
-        const [x, y, z] = randomArenaPosition(1 + Math.random() * 3.5);
-        const size = randomTargetSize();
-        target.mesh = addBox([x, y, z], [size, size, size], 0xffffff, hazardTexture, 1.2);
-        target.size = size;
-        target.home.set(x, y, z);
-        target.motion = randomTargetMotion();
-        target.age = 0;
-        target.maxHp = randomTargetHp();
-        target.hp = target.maxHp;
-        target.flashUntil = 0;
-        score++;
-        scoreEl.textContent = String(score);
-      } else {
-        // Briefly glow so a hit that didn't destroy the block still reads
-        // as "damaged" rather than looking like nothing happened.
-        target.mesh.material.emissive.setHex(0x554400);
-        target.flashUntil = performance.now() + 120;
-      }
-    }
+    resolveTargetHit(raycaster.intersectObjects(targets.map((t) => t.mesh)), obstacleDist);
 
     if (ammo[currentWeapon] <= 0) requestReload();
 
@@ -1461,6 +1498,41 @@
         type: "shoot",
         origin: [camera.position.x, camera.position.y, camera.position.z],
         dir: [forward.x, forward.y, forward.z]
+      }));
+    }
+  }
+
+  // No ammo, no spread, no ADS -- just a short-range, no-bloom swing. Reuses
+  // the exact same "shoot" network message as the guns (the server tells
+  // melee and gunfire apart by the shooter's currently equipped weapon id,
+  // the same way it already tells the 4 guns apart) and independently caps
+  // the range server-side so a modified client can't turn this into a
+  // long-range one-shot.
+  function meleeAttack() {
+    const weaponSpec = WEAPONS[currentWeapon];
+    const now = performance.now();
+    if (now - lastShotTime < weaponSpec.cooldown) return;
+    lastShotTime = now;
+
+    triggerGunFire(); // reuses the guns' forward-punch recoil kick as a stand-in swing motion
+    playMeleeSwing();
+
+    const aimDir = getForward();
+    raycaster.set(camera.position, aimDir);
+    raycaster.far = weaponSpec.meleeRange;
+
+    const obstacleHits = raycaster.intersectObjects(bulletBlockers, true);
+    const obstacleDist = obstacleHits.length > 0 ? obstacleHits[0].distance : Infinity;
+
+    resolveTargetHit(raycaster.intersectObjects(targets.map((t) => t.mesh)), obstacleDist);
+
+    raycaster.far = Infinity; // restore -- shared raycaster, guns need unlimited range
+
+    if (connected && !isDead) {
+      ws.send(JSON.stringify({
+        type: "shoot",
+        origin: [camera.position.x, camera.position.y, camera.position.z],
+        dir: [aimDir.x, aimDir.y, aimDir.z]
       }));
     }
   }
@@ -1586,6 +1658,29 @@
     playFilteredClick(boltHomeAt, { filterType: "lowpass", freq: 200, q: 0.7, gain: 0.35, decay: 0.06 });
   }
 
+  // Knife swing: a quick bandpass-filtered noise sweep (high frequency
+  // ramping down fast) rather than any gunshot/mechanical-clack sound --
+  // reads as air being cut, not a weapon firing. Whether it actually lands
+  // is signaled separately by the normal hit-tick/marker via resolveTargetHit.
+  function playMeleeSwing() {
+    const source = audioCtx.createBufferSource();
+    source.buffer = mechanicalNoiseBuffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.Q.value = 1.1;
+    const now = audioCtx.currentTime;
+    filter.frequency.setValueAtTime(2400, now);
+    filter.frequency.exponentialRampToValueAtTime(350, now + 0.12);
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.setValueAtTime(0.5, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    source.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    source.start(now);
+    source.stop(now + 0.18);
+  }
+
   function playHitTick() {
     const duration = 0.045;
     const sampleRate = audioCtx.sampleRate;
@@ -1680,6 +1775,12 @@
   }
 
   function updateAmmoHud() {
+    if (WEAPONS[currentWeapon].melee) {
+      ammoCountEl.textContent = "—";
+      ammoMaxEl.textContent = "—";
+      reloadIndicatorEl.classList.add("hidden");
+      return;
+    }
     ammoCountEl.textContent = String(Math.max(0, ammo[currentWeapon]));
     ammoMaxEl.textContent = String(WEAPONS[currentWeapon].magSize);
     reloadIndicatorEl.classList.toggle("hidden", !reloading);
@@ -1868,7 +1969,7 @@
     // shot spread itself, so this is an honest picture: a target that
     // visually fills this gap genuinely has good hit odds, not just a
     // vaguely-proportional decoration.
-    crosshairEl.style.setProperty("--gap", spreadDegreesToPixels(activeWeapon.hipSpread) + "px");
+    crosshairEl.style.setProperty("--gap", spreadDegreesToPixels(activeWeapon.hipSpread || 0) + "px");
 
     updateGunModel(dt, moving, adsBlend, sprinting);
     sendStateIfDue(now);
