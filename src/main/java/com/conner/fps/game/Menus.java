@@ -22,7 +22,7 @@ public final class Menus {
 
     /** What the player decided this frame. */
     public static final class Action {
-        public static final int NONE = 0, LOADOUT = 1, START_PVP = 2, START_TRAINING = 3, RESUME = 4, QUIT = 5;
+        public static final int NONE = 0, LOADOUT = 1, START_PVP = 2, START_TRAINING = 3, RESUME = 4, QUIT = 5, LEAVE = 6;
         public int type = NONE;
         public int weapon;
         public String name = "";
@@ -56,6 +56,13 @@ public final class Menus {
 
     public Menus(String defaultServer) {
         this.server = defaultServer;
+    }
+
+    /** Back to the first screen for a fresh mode/class choice (the typed name and server are kept). */
+    public void reset() {
+        screen = Screen.MODE;
+        pendingMode = "training";
+        focusedField = 0;
     }
 
     public Screen screen() {
@@ -173,9 +180,11 @@ public final class Menus {
             }
             case PAUSED: {
                 ui.textCentered(fonts.title, "Paused", cx, h / 2f - 110, 1, 1, 1, 1);
-                if (bigButtonSmall(ui, fonts, "Resume", cx - 90, h / 2f - 40, 180, 42, cursorX, cursorY) && click) action.type = Action.RESUME;
-                if (bigButtonSmall(ui, fonts, "Quit", cx - 90, h / 2f + 20, 180, 42, cursorX, cursorY) && click) action.type = Action.QUIT;
-                ui.textCentered(fonts.small, "Esc: resume", cx, h / 2f + 84, 1, 1, 1, 0.6f);
+                if (bigButtonSmall(ui, fonts, "Resume", cx - 110, h / 2f - 60, 220, 42, cursorX, cursorY) && click) action.type = Action.RESUME;
+                if (bigButtonSmall(ui, fonts, "Leave Game", cx - 110, h / 2f, 220, 42, cursorX, cursorY) && click) action.type = Action.LEAVE;
+                if (bigButtonSmall(ui, fonts, "Quit", cx - 110, h / 2f + 60, 220, 42, cursorX, cursorY) && click) action.type = Action.QUIT;
+                ui.textCentered(fonts.small, "Leave Game returns to mode select — pick a different mode or class", cx, h / 2f + 116, 1, 1, 1, 0.6f);
+                ui.textCentered(fonts.small, "Esc: resume", cx, h / 2f + 138, 1, 1, 1, 0.6f);
                 break;
             }
             default:

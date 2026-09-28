@@ -338,6 +338,22 @@ public final class SelfTest implements Game.ScriptHook {
         wait(3);
         verify("Esc pauses and shows the pause menu", () -> gameState().equals("PAUSED") && game().menus().screen() == Menus.Screen.PAUSED, null);
         shot("09_paused");
+
+        // --- leave the game, then start a different mode/class without restarting the client
+        click(null, 640, 381);
+        wait(3);
+        verify("Leave Game returns to mode select with everything reset",
+                () -> gameState().equals("MENU") && game().menus().screen() == Menus.Screen.MODE && game().score() == 0
+                        && game().weapons().current == 1 && game().weapons().ammo[1] == 24 && game().practice().targets().isEmpty(), null);
+        wait(3);
+        shot("10_after_leave");
+        click(null, 640, 438);
+        wait(3);
+        pickCard(null, 0, Menus.Screen.TRAINING_SETUP);
+        click(null, 640, 391);
+        wait(3);
+        verify("a new game starts right away with the newly chosen class (Pistol)",
+                () -> gameState().equals("PLAYING") && game().weapons().current == 0 && game().practice().targets().size() == 6 && game().score() == 0, null);
     }
 
     private void buildPvp() {
@@ -407,6 +423,24 @@ public final class SelfTest implements Game.ScriptHook {
         shot("08_pvp_banner");
         act(() -> inject("{\"type\":\"matchReset\"}"));
         verify("match reset clears the scores", () -> game().pvp().myKills == 0 && game().pvp().remotes.get(77).kills == 0, null);
+
+        // --- leaving a match tells the server (others see us go) and returns to mode select
+        act(() -> game().pauseForTest());
+        wait(3);
+        click(null, 640, 381);
+        wait(3);
+        verify("Leave Game drops the match and returns to mode select",
+                () -> gameState().equals("MENU") && game().pvp() == null && game().menus().screen() == Menus.Screen.MODE, null);
+        until("the other client sees us leave", () -> observerSawLeft(), 4.0);
+    }
+
+    private boolean observerSawLeft() {
+        if (observer == null) return false;
+        Map<String, Object> m;
+        while ((m = observer.poll()) != null) {
+            if ("playerLeft".equals(m.get("type"))) return true;
+        }
+        return false;
     }
 
     private void inject(String json) {

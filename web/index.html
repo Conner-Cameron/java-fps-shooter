@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Java FPS Shooter — Web</title>
+<title>Java FPS Shooter â Web</title>
 <style>
   html, body {
     margin: 0;
@@ -367,7 +367,7 @@
 
 <div id="hud" hidden>
   Kills: <span id="kills">0</span> / <span id="killLimit">10</span>
-  &nbsp;•&nbsp; Players: <span id="playerCount">1</span>
+  &nbsp;â¢&nbsp; Players: <span id="playerCount">1</span>
 </div>
 <div id="trainingHud" hidden>
   Practice score: <span id="score">0</span>
@@ -382,7 +382,7 @@
 <div id="weaponPanel">
   <div>Weapon: <span id="weaponName">Rifle</span> (<span id="weaponDamage">34</span> dmg)</div>
   <div>Ammo: <span id="ammoCount">24</span>/<span id="ammoMax">24</span>
-    <span id="reloadIndicator" class="hidden"> — Reloading…</span>
+    <span id="reloadIndicator" class="hidden"> â Reloadingâ¦</span>
   </div>
   <div class="weaponKeys">[R] Reload &nbsp; [RMB] Aim &nbsp; [Scroll] Knife</div>
 </div>
@@ -404,20 +404,20 @@
     <div class="reticleDot"></div>
   </div>
 </div>
-<div id="deathOverlay">Eliminated — respawning…</div>
+<div id="deathOverlay">Eliminated â respawningâ¦</div>
 <div id="matchBanner"></div>
 
 <div id="overlay">
   <div id="modeSelect">
     <h1>Conner's PVP/Aim Training</h1>
     <p>Choose a mode</p>
-    <button class="modeBtn" id="pvpModeBtn">PvP Deathmatch<span class="sub">Fight other players online — first to 10 kills wins</span></button>
-    <button class="modeBtn" id="trainingModeBtn">Aim Training<span class="sub">Private solo practice arena — no one else can join</span></button>
+    <button class="modeBtn" id="pvpModeBtn">PvP Deathmatch<span class="sub">Fight other players online â first to 10 kills wins</span></button>
+    <button class="modeBtn" id="trainingModeBtn">Aim Training<span class="sub">Private solo practice arena â no one else can join</span></button>
   </div>
 
   <div id="weaponSelect" hidden>
     <h1>Choose Your Loadout</h1>
-    <p>Pick your weapon — this is your loadout until you leave the game</p>
+    <p>Pick your weapon â this is your loadout until you leave the game</p>
     <div class="weaponGrid">
       <button class="weaponCard" data-weapon="0">
         <canvas class="weaponIcon" data-weapon-icon="0" width="160" height="120"></canvas>
@@ -448,19 +448,25 @@
 
   <div id="pvpSetup" hidden>
     <h1>PvP Deathmatch</h1>
-    <p><strong>W A S D</strong> move &nbsp;•&nbsp; <strong>Mouse</strong> look &nbsp;•&nbsp; <strong>Space</strong> jump &nbsp;•&nbsp; <strong>Shift</strong> sprint</p>
-    <p><strong>Click</strong> to shoot &nbsp;•&nbsp; <strong>right-click</strong> to aim down sights &nbsp;•&nbsp; <strong>scroll</strong> to pull your knife &nbsp;•&nbsp; first to <strong>10 kills</strong> wins the lobby</p>
+    <p><strong>W A S D</strong> move &nbsp;â¢&nbsp; <strong>Mouse</strong> look &nbsp;â¢&nbsp; <strong>Space</strong> jump &nbsp;â¢&nbsp; <strong>Shift</strong> sprint</p>
+    <p><strong>Click</strong> to shoot &nbsp;â¢&nbsp; <strong>right-click</strong> to aim down sights &nbsp;â¢&nbsp; <strong>scroll</strong> to pull your knife &nbsp;â¢&nbsp; first to <strong>10 kills</strong> wins the lobby</p>
     <input id="nameInput" type="text" maxlength="16" placeholder="Your name" />
     <button id="startBtn">Click to Play</button>
-    <div class="hint">Refresh the page to choose a different mode</div>
+    <div class="hint">Press Esc while playing to pause or leave the game</div>
   </div>
 
   <div id="trainingSetup" hidden>
     <h1>Aim Training</h1>
-    <p><strong>W A S D</strong> move &nbsp;•&nbsp; <strong>Mouse</strong> look &nbsp;•&nbsp; <strong>Space</strong> jump &nbsp;•&nbsp; <strong>Shift</strong> sprint</p>
-    <p><strong>Click</strong> to shoot the target blocks &nbsp;•&nbsp; <strong>right-click</strong> to aim down sights &nbsp;•&nbsp; <strong>scroll</strong> to pull your knife &nbsp;•&nbsp; private — no other players here</p>
+    <p><strong>W A S D</strong> move &nbsp;â¢&nbsp; <strong>Mouse</strong> look &nbsp;â¢&nbsp; <strong>Space</strong> jump &nbsp;â¢&nbsp; <strong>Shift</strong> sprint</p>
+    <p><strong>Click</strong> to shoot the target blocks &nbsp;â¢&nbsp; <strong>right-click</strong> to aim down sights &nbsp;â¢&nbsp; <strong>scroll</strong> to pull your knife &nbsp;â¢&nbsp; private â no other players here</p>
     <button id="startTrainingBtn">Click to Play</button>
-    <div class="hint">Refresh the page to choose a different mode</div>
+    <div class="hint">Press Esc while playing to pause or leave the game</div>
+  </div>
+
+  <div id="pauseMenu" hidden>
+    <h1>Paused</h1>
+    <button class="modeBtn" id="resumeBtn">Resume<span class="sub">Click to get back into the game</span></button>
+    <button class="modeBtn" id="leaveBtn">Leave Game<span class="sub">Back to mode select — pick a different mode or class</span></button>
   </div>
 </div>
 

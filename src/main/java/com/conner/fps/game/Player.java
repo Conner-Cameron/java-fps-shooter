@@ -47,6 +47,16 @@ public final class Player {
         pitch = Math.max(-limit, Math.min(limit, pitch));
     }
 
+    /** Back to the default start spot, facing forward, at rest. */
+    public void reset() {
+        position.set(0, World.EYE_HEIGHT, 8);
+        yaw = (float) (-Math.PI / 2);
+        pitch = 0f;
+        moving = false;
+        sprinting = false;
+        teleport(0, World.EYE_HEIGHT, 8);
+    }
+
     public Matrix4f viewMatrix() {
         Vector3f target = new Vector3f(position).add(forward());
         return new Matrix4f().lookAt(position, target, new Vector3f(0, 1, 0));

@@ -425,12 +425,38 @@ public class Game implements PvpSession.Hooks {
             case Menus.Action.RESUME:
                 resume();
                 break;
+            case Menus.Action.LEAVE:
+                leaveGame();
+                break;
             case Menus.Action.QUIT:
                 window.close();
                 break;
             default:
                 break;
         }
+    }
+
+    /** Leaves the current game for good -- drops the match connection, resets all game state, and returns to mode select. */
+    private void leaveGame() {
+        if (pvp != null) {
+            pvp.client().close();
+            pvp = null;
+        }
+        practice.clear();
+        hitEffects.clear();
+        score = 0;
+        gameMode = null;
+        bannerText = null;
+        bannerUntil = 0;
+        hitMarkerAge = 99f;
+        mouseHeld = false;
+        lastStateSent = 0;
+        weapons.reset();
+        player.reset();
+        state = State.MENU;
+        menus.reset();
+        window.setCursorCaptured(false);
+        window.setTitle("Java FPS Shooter");
     }
 
     private void beginPlaying() {

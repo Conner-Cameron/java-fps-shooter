@@ -153,7 +153,8 @@
   // observer connection: sees other players' broadcast state
   const seen = [];
   const observer = new WebSocket("ws://" + location.host + "/ws");
-  observer.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "state") seen.push(m.pos); };
+  let observerSawLeft = false;
+  observer.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "state") seen.push(m.pos); if (m.type === "playerLeft") observerSawLeft = true; };
   await new Promise((r) => (observer.onopen = r));
   observer.send(JSON.stringify({ type: "join", name: "Observer" }));
 
@@ -187,6 +188,41 @@
     check("pvp: holding W moved the player through the server", dist > 2, dist.toFixed(2));
   }
   check("pvp: no server position corrections during normal walking", pwarn.filter((w) => /corrected/.test(w)).length === 0, pwarn.join(" | "));
+
+  // ---------------- leave game -> choose again (no page reload) ----------------
+  const unlock = (d, w) => {
+    Object.defineProperty(d, "pointerLockElement", { get: () => null, configurable: true });
+    d.dispatchEvent(new w.Event("pointerlockchange"));
+  };
+  const pvis = (sel) => vis(pdoc().querySelector(sel));
+  unlock(pdoc(), pwin);
+  await wait(200);
+  check("leave: Esc/unlock during a match opens the pause menu", pvis("#pauseMenu") && pvis("#overlay") && !pvis("#modeSelect"));
+  pdoc().getElementById("leaveBtn").click();
+  await wait(500);
+  check("leave: Leave Game returns to mode select", pvis("#modeSelect") && !pvis("#pauseMenu"));
+  check("leave: in-game HUD is hidden again", pdoc().getElementById("hud").hidden && pdoc().getElementById("healthPanel").hidden);
+  for (let i = 0; i < 20 && !observerSawLeft; i++) await wait(100);
+  check("leave: the server told other players we left", observerSawLeft);
+  check("leave: weapon and ammo were reset to defaults", pdoc().getElementById("weaponName").textContent === "Rifle" && pdoc().getElementById("ammoCount").textContent === "24");
+
+  // pick a different mode and class in the same page session
+  pdoc().getElementById("trainingModeBtn").click();
+  pdoc().querySelector('.weaponCard[data-weapon="2"]').click();
+  pdoc().getElementById("startTrainingBtn").click();
+  await wait(300);
+  Object.defineProperty(pdoc(), "pointerLockElement", { get: () => pcanvas, configurable: true });
+  pdoc().dispatchEvent(new pwin.Event("pointerlockchange"));
+  await wait(300);
+  check("leave: a new mode/class can be started right away (Aim Training with the Sniper)",
+    pdoc().getElementById("weaponName").textContent === "Sniper" && !pdoc().getElementById("trainingHud").hidden && pdoc().getElementById("hud").hidden,
+    pdoc().getElementById("weaponName").textContent);
+  // ...and back out again to prove targets are torn down and rebuilt cleanly
+  unlock(pdoc(), pwin);
+  await wait(200);
+  pdoc().getElementById("leaveBtn").click();
+  await wait(300);
+  check("leave: leaving Aim Training also returns to mode select", pvis("#modeSelect") && pdoc().getElementById("trainingHud").hidden);
 
   const allErrors = errors.concat(perr);
   check("no uncaught JS errors in either game frame", allErrors.length === 0, allErrors.join(" | "));

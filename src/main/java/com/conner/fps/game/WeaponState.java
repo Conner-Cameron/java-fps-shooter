@@ -23,6 +23,18 @@ public final class WeaponState {
         for (int i = 0; i < ammo.length; i++) ammo[i] = Weapons.ALL[i].magSize;
     }
 
+    /** Default loadout (rifle), full magazines, no reload or aim in progress. */
+    public void reset() {
+        current = 1;
+        primary = 1;
+        for (int i = 0; i < ammo.length; i++) ammo[i] = Weapons.ALL[i].magSize;
+        reloading = false;
+        aiming = false;
+        adsBlend = 0f;
+        fov = Player.BASE_FOV;
+        lastShot = 0;
+    }
+
     public Weapons.Spec spec() {
         return Weapons.ALL[current];
     }

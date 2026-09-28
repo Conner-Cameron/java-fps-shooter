@@ -12,7 +12,8 @@ const SCREENS = {
   mode: "modeSelect",
   loadout: "weaponSelect",
   pvp: "pvpSetup",
-  training: "trainingSetup"
+  training: "trainingSetup",
+  pause: "pauseMenu"
 };
 
 const overlay = document.getElementById("overlay");
@@ -37,8 +38,10 @@ export function setOverlayVisible(visible) {
  *  - onLoadoutChosen(weaponIdx): a weapon card was clicked
  *  - onStartPvp(name):           "Click to Play" on the PvP setup screen
  *  - onStartTraining():          "Click to Play" on the Aim Training setup screen
+ *  - onResume():                 "Resume" on the pause screen
+ *  - onLeave():                  "Leave Game" on the pause screen
  */
-export function initMenus({ onLoadoutChosen, onStartPvp, onStartTraining }) {
+export function initMenus({ onLoadoutChosen, onStartPvp, onStartTraining, onResume, onLeave }) {
   let pendingMode = null; // which mode's setup screen follows the loadout screen
 
   document.getElementById("pvpModeBtn").addEventListener("click", () => {
@@ -69,4 +72,6 @@ export function initMenus({ onLoadoutChosen, onStartPvp, onStartTraining }) {
     onStartPvp(name);
   });
   document.getElementById("startTrainingBtn").addEventListener("click", () => onStartTraining());
+  document.getElementById("resumeBtn").addEventListener("click", () => onResume());
+  document.getElementById("leaveBtn").addEventListener("click", () => onLeave());
 }

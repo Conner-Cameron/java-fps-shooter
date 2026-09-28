@@ -47,7 +47,7 @@ photos and glTF/PBR weapon models), and the protocol.
 | Right click    | Aim down sights (not with the knife)      |
 | Scroll wheel   | Toggle knife / your class weapon          |
 | `R`            | Reload                                    |
-| `Esc`          | Back (menus) / pause (in game)            |
+| `Esc`          | Back (menus) / pause menu in game: Resume, **Leave Game** (back to mode select), Quit |
 
 ## Requirements
 

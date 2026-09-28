@@ -25,13 +25,14 @@ import { hazardTexture } from "./js/textures.js";
 import { playGunshot, playReloadSound, playMeleeSwing, playHitTick, resumeAudio } from "./js/audio.js";
 import { bulletBlockers, addBox, buildWorld } from "./js/world.js";
 import {
-  targets, randomArenaPosition, randomTargetHp, randomTargetMotion, randomTargetSize, createPracticeTargets
+  targets, randomArenaPosition, randomTargetHp, randomTargetMotion, randomTargetSize, createPracticeTargets,
+  clearPracticeTargets
 } from "./js/practice.js";
 import { createPlayerModel, EYE_OFFSET, lerpAngle } from "./js/playerModel.js";
 import { findGroundY, collidesAt, collidesWithRamps, findCeilingY, PLAYER_HEIGHT } from "./js/collision.js";
 import { showGun, triggerGunFire, updateGunModel, renderWeaponIcons } from "./js/weaponModels.js";
-import { initMenus, isScreenVisible, setOverlayVisible } from "./js/screens.js";
-import { connect, isConnected, sendMessage } from "./js/net.js";
+import { initMenus, isScreenVisible, setOverlayVisible, showScreen } from "./js/screens.js";
+import { connect, disconnect, isConnected, sendMessage } from "./js/net.js";
 import { finishLoading } from "./js/assets.js";
 import {
   showHitMarker, setScopeVisible, setAdsCrosshairVisible, setCrosshairHidden, setCrosshairGap, clearAimUi,
@@ -345,6 +346,12 @@ initMenus({
       resumeAudio();
     }
     lockPointer();
+  },
+  onResume() {
+    lockPointer();
+  },
+  onLeave() {
+    leaveGame();
   }
 });
 
@@ -353,8 +360,60 @@ document.addEventListener("pointerlockchange", () => {
   if (!isLocked()) {
     mouseHeld = false;
     aiming = false;
+    // Losing the pointer mid-game (Esc) opens the pause menu: resume, or leave for mode select.
+    if (started) showScreen("pause");
   }
 });
+
+// Leaves the current game entirely -- disconnects from the match, tears down
+// its world state, and returns to mode select so a different mode/class can
+// be chosen without reloading the page.
+function leaveGame() {
+  disconnect();
+  for (const id of [...remotePlayers.keys()]) removeRemotePlayer(id);
+  clearPracticeTargets();
+  for (const k of Object.keys(keys)) keys[k] = false;
+
+  started = false;
+  gameMode = null;
+  playerName = "";
+  myId = null;
+  killLimit = 10;
+  myKills = 0;
+  myHp = MAX_HP;
+  isDead = false;
+  score = 0;
+  mouseHeld = false;
+  aiming = false;
+  adsBlend = 0;
+  camera.fov = BASE_FOV;
+  camera.updateProjectionMatrix();
+
+  // back to the default loadout, full magazines
+  ammo = WEAPONS.map((w) => w.magSize);
+  reloading = false;
+  currentWeapon = 1;
+  primaryWeapon = 1;
+  showGun(1);
+
+  yaw = -Math.PI / 2;
+  pitch = 0;
+  teleportLocalPlayer([0, EYE_HEIGHT, 8]);
+
+  for (const id of ["hud", "trainingHud", "healthPanel"]) document.getElementById(id).hidden = true;
+  renderTrainingScore(0);
+  renderScoreboard({ myKills: 0, killLimit: 10, playerCount: 1, rows: [] });
+  setStatus("");
+  hideBanner();
+  setDeathOverlay(false);
+  clearAimUi();
+  updateWeaponHud();
+  updateAmmoHud();
+  updateHealthHud();
+
+  showScreen("mode");
+  setOverlayVisible(true);
+}
 
 document.addEventListener("mousemove", (e) => {
   if (!isLocked()) return;

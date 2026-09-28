@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { WEAPONS } from "./weapons.js";
 import { hazardTexture } from "./textures.js";
+import { scene } from "./core.js";
 import { addBox } from "./world.js";
 
 export const targets = []; // local practice bots -- shootable, respawn on hit, not networked
@@ -69,4 +70,16 @@ export function createPracticeTargets() {
   for (let i = 0; i < TARGET_COUNT; i++) {
     targets.push(spawnTarget());
   }
+}
+
+// Removes every block from the scene (leaving Aim Training) so a fresh
+// createPracticeTargets() starts from nothing.
+export function clearPracticeTargets() {
+  for (const t of targets) {
+    scene.remove(t.mesh);
+    t.mesh.geometry.dispose();
+    if (t.mesh.material.map) t.mesh.material.map.dispose();
+    t.mesh.material.dispose();
+  }
+  targets.length = 0;
 }
