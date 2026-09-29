@@ -292,7 +292,7 @@ let yaw = -Math.PI / 2;
 let pitch = 0;
 const MOUSE_SENSITIVITY = 0.0022;
 const MOVE_SPEED = 6.0;
-const SPRINT_MULT = 1.6; // Shift held (and not aiming) moves 60% faster
+const DEFAULT_SPRINT_MULT = 1.6; // fallback; each weapon sets its own sprintMult (see weapons.js)
 let started = false;
 let isDead = false;
 
@@ -767,7 +767,7 @@ function tick(now) {
     if (aiming && WEAPONS[currentWeapon].adsMoveMult != null) {
       speedMult = WEAPONS[currentWeapon].adsMoveMult;
     } else if (sprinting) {
-      speedMult = SPRINT_MULT;
+      speedMult = WEAPONS[currentWeapon].sprintMult || DEFAULT_SPRINT_MULT;
     }
     const velocity = MOVE_SPEED * speedMult * dt;
     moving = keys["KeyW"] || keys["KeyS"] || keys["KeyD"] || keys["KeyA"];

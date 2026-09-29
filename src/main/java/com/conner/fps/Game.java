@@ -221,7 +221,7 @@ public class Game implements PvpSession.Hooks {
                 player.update(world, dt,
                         Input.keys[GLFW_KEY_W], Input.keys[GLFW_KEY_S], Input.keys[GLFW_KEY_A], Input.keys[GLFW_KEY_D],
                         Input.keys[GLFW_KEY_SPACE], Input.keys[GLFW_KEY_LEFT_SHIFT] || Input.keys[GLFW_KEY_RIGHT_SHIFT],
-                        weapons.aiming, weapons.spec().adsMoveMult);
+                        weapons.aiming, weapons.spec().adsMoveMult, Weapons.sprintMult(weapons.current));
                 moving = player.moving;
                 sprinting = player.sprinting;
             }

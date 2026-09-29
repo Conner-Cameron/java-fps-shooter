@@ -27,7 +27,8 @@ photos and glTF/PBR weapon models), and the protocol.
 - Menu flow: mode select -> loadout (damage/ammo/description per weapon, live 3D
   previews) -> setup -> play; the loadout is locked in until you leave the game
 - Movement with sprint, jump, gravity, and full collision (walls, ceilings,
-  the building, the ramp)
+  the building, the ramp); sprint speed depends on the weapon out
+  (smaller magazine = faster: knife 1.8x walk, sniper 1.75, pistol 1.65, SMG 1.55, rifle 1.5)
 - Weapons with per-weapon damage, magazines, reload, fire rate (SMG is automatic),
   hip-fire spread that the crosshair shows, aim-down-sights per weapon, and a real
   sniper scope; a 100-damage knife within arm's reach

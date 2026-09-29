@@ -58,6 +58,16 @@ public final class Weapons {
         new Spec("Knife", 100, 600, 0, 0, false, 0, 10, 1f, false, 0, 0, true, 2.2f, "")
     };
 
+    /**
+     * Sprint speed multiplier per weapon (same order as {@link #ALL}): smaller magazine = lighter loadout =
+     * faster sprint; walking speed is the same for everyone. Mirrors the web client and GameServer.
+     */
+    private static final float[] SPRINT_MULT = {1.65f, 1.5f, 1.75f, 1.55f, 1.8f};
+
+    public static float sprintMult(int weaponIndex) {
+        return SPRINT_MULT[weaponIndex];
+    }
+
     public static final int KNIFE_INDEX = ALL.length - 1;
     public static final int LOADOUT_COUNT = 4; // the knife isn't a loadout pick
 

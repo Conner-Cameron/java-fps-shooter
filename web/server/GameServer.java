@@ -230,6 +230,9 @@ public class GameServer {
     private static final int[] WEAPON_MAG_SIZE = {8, 24, 5, 20, 1}; // knife's slot is unused -- melee bypasses ammo entirely
     private static final long[] WEAPON_RELOAD_MS = {1000, 1600, 2200, 1300, 1}; // unused for the knife
     private static final boolean[] WEAPON_MELEE = {false, false, false, false, true};
+    // Sprint speed relative to walking, per weapon: smaller magazine = faster sprint (mirrors the clients'
+    // sprintMult). Movement validation budgets each player by the weapon they have out.
+    private static final double[] WEAPON_SPRINT_MULT = {1.65, 1.5, 1.75, 1.55, 1.8};
     // A modified client claiming a "shoot" hit at any distance would trivially
     // turn the knife into a hitscan one-shot at any range, so the server caps
     // it here independently of whatever the client's own reach check does.
@@ -1175,7 +1178,9 @@ public class GameServer {
     // teleport), world bounds, and no path through solid geometry. Anything
     // else gets the player snapped back and their state ignored until the
     // client confirms it landed at the corrected spot (awaitingSync).
-    private static final double MAX_HORIZ_SPEED = 6.0 * 1.6 * 1.5;
+    private static final double WALK_SPEED = 6.0;
+    private static final double SPEED_SLACK = 1.5; // network jitter allowance on top of the real top speed
+    private static final double MAX_HORIZ_SPEED = WALK_SPEED * 1.8 * SPEED_SLACK; // fastest weapon; also sizes the budget cap
     private static final double MAX_VERT_SPEED = 30.0; // a fall from the roof tops out around 22
     private static final double HORIZ_BUDGET_CAP = MAX_HORIZ_SPEED + 1.0;
     private static final double VERT_BUDGET_CAP = MAX_VERT_SPEED + 2.0;
@@ -1193,7 +1198,7 @@ public class GameServer {
 
         double dt = Math.min(1.0, Math.max(0, (nowNanos - p.lastStateNanos) / 1e9));
         p.lastStateNanos = nowNanos;
-        p.horizBudget = Math.min(HORIZ_BUDGET_CAP, p.horizBudget + dt * MAX_HORIZ_SPEED);
+        p.horizBudget = Math.min(HORIZ_BUDGET_CAP, p.horizBudget + dt * WALK_SPEED * WEAPON_SPRINT_MULT[clampWeapon(p.weapon)] * SPEED_SLACK);
         p.vertBudget = Math.min(VERT_BUDGET_CAP, p.vertBudget + dt * MAX_VERT_SPEED);
 
         double dh = Math.hypot(to[0] - p.pos[0], to[2] - p.pos[2]);

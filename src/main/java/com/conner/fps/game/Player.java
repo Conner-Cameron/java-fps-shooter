@@ -12,7 +12,6 @@ import org.joml.Vector3f;
  */
 public final class Player {
     public static final float MOVE_SPEED = 6.0f;
-    public static final float SPRINT_MULT = 1.6f;   // Shift held (and not aiming) moves 60% faster
     public static final float JUMP_SPEED = 7.0f;
     public static final float GRAVITY = 18.0f;
     public static final float MOUSE_SENSITIVITY = 0.0022f;
@@ -74,9 +73,10 @@ public final class Player {
 
     /**
      * @param adsMoveMult movement multiplier while aiming (only used if {@code aiming})
+     * @param sprintMult movement multiplier while sprinting (only used if {@code shift} and not aiming)
      */
     public void update(World world, float dt, boolean fwd, boolean back, boolean left, boolean right,
-                       boolean jump, boolean shift, boolean aiming, float adsMoveMult) {
+                       boolean jump, boolean shift, boolean aiming, float adsMoveMult, float sprintMult) {
         float currentFeetY = position.y - World.EYE_HEIGHT;
         if (world.collidesAt(position.x, currentFeetY, position.z)) {
             position.set(lastSafeX, lastSafeY, lastSafeZ);
@@ -97,7 +97,7 @@ public final class Player {
         sprinting = !aiming && shift;
         float speedMult = 1f;
         if (aiming) speedMult = adsMoveMult;
-        else if (sprinting) speedMult = SPRINT_MULT;
+        else if (sprinting) speedMult = sprintMult;
         float velocity = MOVE_SPEED * speedMult * dt;
         moving = fwd || back || left || right;
 
