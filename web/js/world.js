@@ -12,6 +12,8 @@ import { tiledClone, metalTexture, rockTexture, barkTexture, foliageTexture, mak
 export const collidables = []; // meshes the ground-detection raycast can land the player on (see the jump/gravity code)
 export const solidBoxes = []; // precomputed Box3s for horizontal + ceiling collision against static structure
 export const bulletBlockers = []; // meshes the shoot() raycast checks first -- anything solid stops a bullet, hit or miss
+export const portals = []; // {x, y, z, r, to}, eye-height like spawn/respawn positions -- see collision.js's portalAt()
+export const portalBeams = []; // the glowing columns, animated (a slow spin) each frame in game.js's tick()
 
 // Registers a static mesh as real solid structure: standable from above
 // (via `collidables`, used by the downward ground raycast), blocking
@@ -169,6 +171,36 @@ function addRock(x, z, scale) {
   bulletBlockers.push(rock);
 }
 
+// ---- Portals: a glowing floor pad + an energy column, purely visual -- not solid and not a
+// bullet-blocker. The teleport itself is a plain position check (see collision.js's portalAt()),
+// resolved locally for feel and confirmed/corrected by the server in PvP (see GameServer.java).
+const EYE_HEIGHT = 1.7; // matches game.js -- portal centers (like spawn/respawn positions) are eye-height
+const PORTAL_GLOW = 0x54ccf2;
+
+function addPortal(p) {
+  const feetY = p.c[1] - EYE_HEIGHT;
+
+  const pad = new THREE.Mesh(
+    new THREE.CylinderGeometry(p.r, p.r, 0.06, 24),
+    new THREE.MeshBasicMaterial({ color: PORTAL_GLOW })
+  );
+  pad.position.set(p.c[0], feetY + 0.03, p.c[2]);
+  scene.add(pad);
+
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(p.r * 0.55, p.r * 0.55, 3.2, 24, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: PORTAL_GLOW, transparent: true, opacity: 0.25, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    })
+  );
+  beam.position.set(p.c[0], feetY + 1.6, p.c[2]);
+  scene.add(beam);
+  portalBeams.push(beam);
+
+  portals.push({ x: p.c[0], y: p.c[1], z: p.c[2], r: p.r, to: p.to });
+}
+
 // General start/end ramp builder: position it at the segment's midpoint
 // and orient it with lookAt so the math works for any direction/slope
 // without hand-computing rotation angles.
@@ -221,4 +253,5 @@ export function buildWorld(MAP) {
   MAP.trees.forEach(([x, z]) => addTree(x, z));
   MAP.rocks.forEach(([x, z, s]) => addRock(x, z, s));
   MAP.ramps.forEach((r) => addRamp(r.a, r.b, r.w, r.t));
+  (MAP.portals || []).forEach((p) => addPortal(p));
 }

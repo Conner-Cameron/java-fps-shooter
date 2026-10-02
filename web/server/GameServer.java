@@ -115,8 +115,27 @@ public class GameServer {
         }
     }
 
+    /**
+     * A one-way teleport trigger: stepping within {@code r} (horizontal distance) and
+     * {@code PORTAL_VERT_TOLERANCE} (vertical) of {@code c} instantly moves the player to
+     * {@code to} -- no input needed, same as the client-side prediction in world.js/World.java.
+     */
+    static final class Portal {
+        final double[] c;
+        final double r;
+        final double[] to;
+
+        Portal(double[] c, double r, double[] to) {
+            this.c = c;
+            this.r = r;
+            this.to = to;
+        }
+    }
+
+    private static final double PORTAL_VERT_TOLERANCE = 1.2;
     private static final List<Solid> SOLIDS = new ArrayList<>();
     private static final List<Ramp> RAMPS = new ArrayList<>();
+    private static final List<Portal> PORTALS = new ArrayList<>();
 
     @SuppressWarnings("unchecked")
     private static void loadMap(File file) throws IOException {
@@ -144,7 +163,23 @@ public class GameServer {
             RAMPS.add(new Ramp(toDoubleArray((List<Object>) r.get("a")), toDoubleArray((List<Object>) r.get("b")),
                     ((Number) r.get("w")).doubleValue(), ((Number) r.get("t")).doubleValue()));
         }
-        System.out.println("Loaded map: " + SOLIDS.size() + " solids, " + RAMPS.size() + " ramps");
+        if (map.get("portals") != null) {
+            for (Object o : (List<Object>) map.get("portals")) {
+                Map<String, Object> p = (Map<String, Object>) o;
+                PORTALS.add(new Portal(toDoubleArray((List<Object>) p.get("c")),
+                        ((Number) p.get("r")).doubleValue(), toDoubleArray((List<Object>) p.get("to"))));
+            }
+        }
+        System.out.println("Loaded map: " + SOLIDS.size() + " solids, " + RAMPS.size() + " ramps, " + PORTALS.size() + " portals");
+    }
+
+    /** The portal whose trigger volume {@code pos} (eye-height) is currently inside, or null. */
+    private static Portal portalAt(double[] pos) {
+        for (Portal p : PORTALS) {
+            double dx = pos[0] - p.c[0], dz = pos[2] - p.c[2];
+            if (dx * dx + dz * dz <= p.r * p.r && Math.abs(pos[1] - p.c[1]) <= PORTAL_VERT_TOLERANCE) return p;
+        }
+        return null;
     }
 
     // ---- small vector helpers (plain double[3]) ----
@@ -1286,6 +1321,21 @@ public class GameServer {
         Object pitchObj = obj.get("pitch");
         if (yawObj instanceof Number) p.yaw = ((Number) yawObj).doubleValue();
         if (pitchObj instanceof Number) p.pitch = ((Number) pitchObj).doubleValue();
+
+        // Stepping into a portal overrides wherever this update just put the player -- no input needed,
+        // just touching the trigger volume. Broadcast as its own message (not "state") to every player
+        // in the room, including this one: the client already predicted this locally on contact (same
+        // map data), so it mostly just confirms that; a remote player snaps to the exit instantly rather
+        // than smoothly gliding there, same as a respawn.
+        Portal entered = portalAt(p.pos);
+        if (entered != null) {
+            p.setPos(entered.to.clone(), true);
+            p.awaitingSync = true;
+            p.syncPendingSinceMs = System.currentTimeMillis();
+            room.broadcast(Json.obj("type", "teleport", "id", p.id, "pos", p.pos));
+            return;
+        }
+
         room.broadcastExcept(p.id, Json.obj("type", "state", "id", p.id, "pos", p.pos, "yaw", p.yaw, "pitch", p.pitch));
     }
 

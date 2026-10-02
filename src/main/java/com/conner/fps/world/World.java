@@ -32,6 +32,7 @@ public final class World {
     private static final float RAMP_STAND_CLEARANCE = 0.08f;
     private static final float GROUND_PROBE_UP = 0.4f;
     private static final float GROUND_SNAP_MARGIN = 0.1f;
+    private static final float PORTAL_VERT_TOLERANCE = 1.2f;
 
     /** An axis-aligned solid: walkable-on / blocks movement, and (optionally) stops bullets. */
     private static final class Solid {
@@ -70,6 +71,7 @@ public final class World {
     private final List<Solid> solids = new ArrayList<>();
     private final List<Solid> bulletOnly = new ArrayList<>(); // trees and rocks: stop gunfire but aren't walked into
     private final List<Ramp> ramps = new ArrayList<>();
+    private final List<MapData.Portal> portals = new ArrayList<>();
     private final List<Prop> opaque = new ArrayList<>();
     private final List<Prop> translucent = new ArrayList<>();
     private final List<ShapeMesh> ownedMeshes = new ArrayList<>();
@@ -113,6 +115,20 @@ public final class World {
             Matrix4f m = new Matrix4f().translate(x, 0.3f * s, z).rotateXYZ(s * 1.3f, s * 2.1f, 0f).scale(1.2f * s);
             opaque.add(new Prop(rock, m, tex.rock, new float[]{0.541f, 0.541f, 0.525f}, 1f, 1f, 1f));
             bulletOnly.add(new Solid(new float[]{x, 0.3f * s, z}, new float[]{1.2f * s, 1.2f * s, 1.2f * s}, true));
+        }
+
+        // Portals: a glowing floor pad plus an energy column, built from the same uniform-radius
+        // cylinder (radius/height 1, scaled to fit) -- purely visual markers, not solid or bullet-blocking;
+        // the teleport itself is handled by portalAt() below (and authoritatively by the server).
+        ShapeMesh portalShape = own(Shapes.cylinder(20, 1f, 1f));
+        for (MapData.Portal p : map.portals) {
+            portals.add(p);
+            float feetY = p.center[1] - EYE_HEIGHT;
+            float[] glow = {0.33f, 0.80f, 0.95f};
+            Matrix4f pad = new Matrix4f().translate(p.center[0], feetY + 0.03f, p.center[2]).scale(p.radius, 0.06f, p.radius);
+            opaque.add(new Prop(portalShape, pad, tex.white, glow, 1f, 1f, 1f));
+            Matrix4f beam = new Matrix4f().translate(p.center[0], feetY + 1.6f, p.center[2]).scale(p.radius * 0.55f, 3.2f, p.radius * 0.55f);
+            translucent.add(new Prop(portalShape, beam, tex.white, glow, 1f, 1f, 0.22f));
         }
 
         // Distant mountain ring so the arena doesn't float in a void.
@@ -229,6 +245,19 @@ public final class World {
             }
         }
         return closest;
+    }
+
+    /**
+     * The portal whose trigger volume (eye position, x/z radius + a generous vertical reach) contains
+     * {@code eyePos}, or null. No input needed to use one -- overlapping it is enough, same as the
+     * server's own check, which has final say in PvP (see GameServer's handleState).
+     */
+    public MapData.Portal portalAt(Vector3f eyePos) {
+        for (MapData.Portal p : portals) {
+            float dx = eyePos.x - p.center[0], dz = eyePos.z - p.center[2];
+            if (dx * dx + dz * dz <= p.radius * p.radius && Math.abs(eyePos.y - p.center[1]) <= PORTAL_VERT_TOLERANCE) return p;
+        }
+        return null;
     }
 
     /** Distance to the nearest thing that stops a bullet/knife along the ray (walls, building, ramps, trees, rocks, ground), or +infinity. */

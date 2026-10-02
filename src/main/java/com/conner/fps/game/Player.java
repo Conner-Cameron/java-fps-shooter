@@ -149,5 +149,11 @@ public final class Player {
                 grounded = false;
             }
         }
+
+        // No input needed -- stepping into a portal's trigger volume teleports on contact, same as
+        // the web client. In PvP this is only a prediction: GameServer makes the same check against
+        // its own authoritative position and is what actually moves the player for everyone else.
+        com.conner.fps.data.MapData.Portal portal = world.portalAt(position);
+        if (portal != null) teleport(portal.to[0], portal.to[1], portal.to[2]);
     }
 }

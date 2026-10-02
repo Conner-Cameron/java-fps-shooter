@@ -49,10 +49,24 @@ public final class MapData {
         }
     }
 
+    /** A one-way teleport trigger: standing within {@code radius} (horizontal) of {@code center} moves the player to {@code to}. */
+    public static final class Portal {
+        public final float[] center;
+        public final float radius;
+        public final float[] to;
+
+        Portal(Map<String, Object> o) {
+            center = Json.floats(o.get("c"));
+            radius = (float) Json.num(o.get("r"), 1.5);
+            to = Json.floats(o.get("to"));
+        }
+    }
+
     public final List<Box> boxes = new ArrayList<>();
     public final List<float[]> trees = new ArrayList<>(); // {x, z}
     public final List<float[]> rocks = new ArrayList<>(); // {x, z, scale}
     public final List<Ramp> ramps = new ArrayList<>();
+    public final List<Portal> portals = new ArrayList<>();
 
     public static MapData load() {
         try (InputStream in = MapData.class.getResourceAsStream("/map.json")) {
@@ -63,6 +77,7 @@ public final class MapData {
             for (Object o : Json.list(root.get("trees"))) m.trees.add(Json.floats(o));
             for (Object o : Json.list(root.get("rocks"))) m.rocks.add(Json.floats(o));
             for (Object o : Json.list(root.get("ramps"))) m.ramps.add(new Ramp(Json.obj(o)));
+            for (Object o : Json.list(root.get("portals"))) m.portals.add(new Portal(Json.obj(o)));
             return m;
         } catch (IOException e) {
             throw new RuntimeException("Failed to read map.json", e);

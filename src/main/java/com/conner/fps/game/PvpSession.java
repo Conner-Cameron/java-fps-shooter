@@ -35,6 +35,7 @@ public final class PvpSession {
         void reload(int weapon, int durationMs);
         void died();
         void respawned(float x, float y, float z);
+        void portalTeleport(float x, float y, float z);
         void banner(String text);
         void hideBanner();
     }
@@ -193,6 +194,24 @@ public final class PvpSession {
                     Remote r = remotes.get(id);
                     if (r != null) {
                         r.alive = true;
+                        r.target.set(p[0], p[1] - EYE_OFFSET, p[2]);
+                        r.position.set(r.target);
+                    }
+                }
+                break;
+            }
+            // A portal: the server's own authoritative version of a teleport the client already
+            // predicted on contact (see Player.update -> World.portalAt). Deliberately its own
+            // message rather than "correct" -- this isn't an error correction, so it shouldn't
+            // count as one (self-tests assert zero corrections during ordinary movement).
+            case "teleport": {
+                int id = i(msg.get("id"));
+                float[] p = pos(msg.get("pos"));
+                if (id == myId) {
+                    hooks.portalTeleport(p[0], p[1], p[2]);
+                } else {
+                    Remote r = remotes.get(id);
+                    if (r != null) {
                         r.target.set(p[0], p[1] - EYE_OFFSET, p[2]);
                         r.position.set(r.target);
                     }

@@ -23,13 +23,13 @@ import { renderer, scene, camera, BASE_FOV } from "./js/core.js";
 import { WEAPONS, KNIFE_INDEX } from "./js/weapons.js";
 import { hazardTexture } from "./js/textures.js";
 import { playGunshot, playReloadSound, playMeleeSwing, playHitTick, resumeAudio } from "./js/audio.js";
-import { bulletBlockers, addBox, buildWorld } from "./js/world.js";
+import { bulletBlockers, addBox, buildWorld, portalBeams } from "./js/world.js";
 import {
   targets, randomArenaPosition, randomTargetHp, randomTargetMotion, randomTargetSize, createPracticeTargets,
   clearPracticeTargets
 } from "./js/practice.js";
 import { createPlayerModel, EYE_OFFSET, lerpAngle } from "./js/playerModel.js";
-import { findGroundY, collidesAt, collidesWithRamps, findCeilingY, PLAYER_HEIGHT } from "./js/collision.js";
+import { findGroundY, collidesAt, collidesWithRamps, findCeilingY, portalAt, PLAYER_HEIGHT } from "./js/collision.js";
 import { showGun, triggerGunFire, updateGunModel, renderWeaponIcons } from "./js/weaponModels.js";
 import { initMenus, isScreenVisible, setOverlayVisible, showScreen, setPvpError } from "./js/screens.js";
 import { connect, disconnect, isConnected, sendMessage, startKeepAlive } from "./js/net.js";
@@ -225,6 +225,21 @@ function handleServerMessage(msg) {
         const rp = remotePlayers.get(msg.id);
         if (rp) {
           rp.alive = true;
+          rp.targetPos.set(msg.pos[0], msg.pos[1] - EYE_OFFSET, msg.pos[2]);
+          rp.group.position.copy(rp.targetPos);
+        }
+      }
+      break;
+    }
+    case "teleport": {
+      // The server's own authoritative version of a teleport the client already predicted on
+      // contact (see portalAt() above). Deliberately its own message rather than piggybacking on
+      // "correct" or "respawn" -- this isn't an error correction, and it shouldn't touch hp/death.
+      if (msg.id === myId) {
+        teleportLocalPlayer(msg.pos);
+      } else {
+        const rp = remotePlayers.get(msg.id);
+        if (rp) {
           rp.targetPos.set(msg.pos[0], msg.pos[1] - EYE_OFFSET, msg.pos[2]);
           rp.group.position.copy(rp.targetPos);
         }
@@ -731,6 +746,8 @@ function tick(now) {
   // player is still holding right-click, instead of needing a fresh mousedown to re-engage it.
   aiming = rightMouseHeld && !WEAPONS[currentWeapon].melee && !reloading;
 
+  for (const beam of portalBeams) beam.rotation.y += dt * 0.6;
+
   for (const t of targets) {
     if (t.flashUntil && now >= t.flashUntil) {
       t.mesh.material.emissive.setHex(0x000000);
@@ -841,6 +858,12 @@ function tick(now) {
         grounded = false;
       }
     }
+
+    // No input needed -- touching a portal teleports on contact. In PvP this is only a
+    // prediction: the server makes the same check against its own position and is what
+    // actually moves the player for everyone else (see the "teleport" server message below).
+    const enteredPortal = portalAt(camera.position.x, camera.position.y, camera.position.z);
+    if (enteredPortal) teleportLocalPlayer(enteredPortal.to);
 
     camera.lookAt(
       camera.position.x + forward.x,

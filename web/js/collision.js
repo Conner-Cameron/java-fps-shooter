@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { collidables, solidBoxes, rampColliders } from "./world.js";
+import { collidables, solidBoxes, rampColliders, portals } from "./world.js";
 
 const GROUND_PROBE_UP = 0.4;   // cast the ray from this far above current feet
 const GROUND_SNAP_MARGIN = 0.1; // a little slack beyond this frame's fall distance
@@ -86,4 +86,16 @@ export function findCeilingY(x, z, headY, proposedHeadY) {
     }
   }
   return closest;
+}
+
+// Portals need no input beyond touching them: a generous vertical reach (the same tolerance
+// GameServer.java uses for its own, authoritative check) so jumping through one still counts.
+const PORTAL_VERT_TOLERANCE = 1.2;
+
+export function portalAt(eyeX, eyeY, eyeZ) {
+  for (const p of portals) {
+    const dx = eyeX - p.x, dz = eyeZ - p.z;
+    if (dx * dx + dz * dz <= p.r * p.r && Math.abs(eyeY - p.y) <= PORTAL_VERT_TOLERANCE) return p;
+  }
+  return null;
 }

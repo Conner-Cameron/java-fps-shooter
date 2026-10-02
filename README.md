@@ -18,7 +18,8 @@ Both offer the same two modes and feature set:
   size, hitpoints and drift.
 
 Shared between the clients: the level (`web/map.json` -- walls, multi-floor
-building with windows, spiral ramp, trees, rocks), the weapons (pistol, rifle,
+building with windows, spiral ramp, a one-way portal outside (opposite the
+ramp) to its roof, trees, rocks), the weapons (pistol, rifle,
 sniper, SMG, plus a knife you scroll to), the art (`web/assets/`: reference
 photos and glTF/PBR weapon models), and the protocol.
 
@@ -29,6 +30,9 @@ photos and glTF/PBR weapon models), and the protocol.
 - Movement with sprint, jump, gravity, and full collision (walls, ceilings,
   the building, the ramp); sprint speed depends on the weapon out
   (smaller magazine = faster: knife 1.8x walk, sniper 1.75, pistol 1.65, SMG 1.55, rifle 1.5)
+- A portal outside the building, opposite the spiral ramp, drops you on its
+  roof -- just walk into the glowing pad, no key to press; in PvP the server
+  has the final say on when it fires, same as every other move
 - Weapons with per-weapon damage, magazines, reload, fire rate (SMG is automatic),
   hip-fire spread that the crosshair shows, aim-down-sights per weapon, and a real
   sniper scope; a 100-damage knife within arm's reach

@@ -395,6 +395,13 @@ public class Game implements PvpSession.Hooks {
     }
 
     @Override
+    public void portalTeleport(float x, float y, float z) {
+        // The client already predicted this on contact (Player.update); this just reconciles any
+        // drift against the server's own position -- same idea as a respawn, minus the hp/death reset.
+        player.teleport(x, y, z);
+    }
+
+    @Override
     public void banner(String text) {
         bannerText = text;
         bannerUntil = now + 6.0;
