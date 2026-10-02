@@ -375,6 +375,9 @@ document.addEventListener("pointerlockchange", () => {
   setOverlayVisible(!isLocked());
   if (!isLocked()) {
     mouseHeld = false;
+    // tick() keeps running (and re-deriving `aiming`) even while unlocked, so the held
+    // flag itself has to be cleared here too, or re-locking would resume ADS on its own.
+    rightMouseHeld = false;
     aiming = false;
     // Losing the pointer mid-game (Esc) opens the pause menu: resume, or leave for mode select.
     if (started) showScreen("pause");
@@ -401,6 +404,7 @@ function leaveGame({ keepLoadout = false } = {}) {
   isDead = false;
   score = 0;
   mouseHeld = false;
+  rightMouseHeld = false;
   aiming = false;
   adsBlend = 0;
   camera.fov = BASE_FOV;
@@ -454,6 +458,10 @@ function getForward() {
 }
 
 let mouseHeld = false;
+// Right mouse button, as last reported by a real mousedown/mouseup -- `aiming` (below) is derived
+// from this every frame instead of being set directly by those events, so it can also react to
+// things that change mid-hold without a new click, like a reload finishing while RMB is still down.
+let rightMouseHeld = false;
 let aiming = false;
 let adsBlend = 0; // 0 = hip-fire, 1 = fully aimed -- smoothed each frame in tick()
 
@@ -466,13 +474,13 @@ canvas.addEventListener("mousedown", (e) => {
   if (e.button === 0) {
     mouseHeld = true;
     shoot();
-  } else if (e.button === 2 && !WEAPONS[currentWeapon].melee) { // no aiming down a knife
-    aiming = true;
+  } else if (e.button === 2) {
+    rightMouseHeld = true;
   }
 });
 window.addEventListener("mouseup", (e) => {
   if (e.button === 0) mouseHeld = false;
-  else if (e.button === 2) aiming = false;
+  else if (e.button === 2) rightMouseHeld = false;
 });
 
 // ================================================================
@@ -717,6 +725,11 @@ function tick(now) {
     ammo[currentWeapon] = WEAPONS[currentWeapon].magSize;
     updateAmmoHud();
   }
+
+  // Recomputed every frame from the held button rather than set only on click/release, so aiming
+  // resumes on its own once a reload finishes (or a weapon switch/respawn clears it) while the
+  // player is still holding right-click, instead of needing a fresh mousedown to re-engage it.
+  aiming = rightMouseHeld && !WEAPONS[currentWeapon].melee && !reloading;
 
   for (const t of targets) {
     if (t.flashUntil && now >= t.flashUntil) {

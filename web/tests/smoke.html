@@ -119,6 +119,32 @@
   await wait(100);
   check("number keys no longer switch weapons", text("#weaponName") === "Rifle", text("#weaponName"));
 
+  // ---------------- ADS resumes on its own once a reload finishes, if still held ----------------
+  // Regression test: holding right-click through a reload (manual or out-of-ammo) used to leave
+  // the view stuck out of ADS until the button was released and pressed again.
+  mouse("mousedown", 0); mouse("mouseup", 0);
+  await wait(150);
+  check("ads-reload: fired a round to make a reload meaningful (23 left)", text("#ammoCount") === "23", text("#ammoCount"));
+
+  mouse("mousedown", 2);
+  await wait(250);
+  check("ads-reload: crosshair hides while aiming", $("#crosshair").classList.contains("hidden"));
+
+  key("keydown", "KeyR"); key("keyup", "KeyR");
+  await wait(50);
+  check("ads-reload: reloading while holding aim lowers the weapon (crosshair back, indicator visible)",
+    !$("#crosshair").classList.contains("hidden") && !$("#reloadIndicator").classList.contains("hidden"));
+
+  await wait(1900); // Rifle reloadMs is 1600ms
+  check("ads-reload: reload finished (ammo back to 24)", text("#ammoCount") === "24", text("#ammoCount"));
+  await wait(300); // let adsBlend ease back up past the crosshair's 0.4 threshold
+  check("ads-reload: still holding right-click re-engages ADS on its own (no new click needed)",
+    $("#crosshair").classList.contains("hidden") && $("#adsCrosshair").classList.contains("show"));
+
+  mouse("mouseup", 2);
+  await wait(150);
+  check("ads-reload: releasing right-click drops out of ADS", !$("#crosshair").classList.contains("hidden"));
+
   // Jump + sprint with the primary and with the knife. An exception thrown
   // inside the frame loop kills requestAnimationFrame -- i.e. the whole game
   // freezes -- and surfaces here as an uncaught error.
