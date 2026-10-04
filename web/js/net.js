@@ -61,7 +61,7 @@ export function connect(playerName, room, onMessage, onStatus) {
   ws = new WebSocket(wsUrl());
   ws.onopen = () => {
     connected = true;
-    sendMessage({ type: "join", name: playerName, mode: room.mode, code: room.code || "" });
+    sendMessage({ type: "join", name: playerName, mode: room.mode, code: room.code || "", map: room.map || "" });
   };
   ws.onclose = () => {
     connected = false;

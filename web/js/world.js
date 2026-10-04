@@ -16,6 +16,9 @@ export const bulletBlockers = []; // meshes the shoot() raycast checks first -- 
 export const portals = []; // {x, y, z, r, to}, eye-height like spawn/respawn positions -- see collision.js's portalAt()
 export const climbables = []; // {minX, maxX, minZ, maxZ, topY, centerX, centerZ, durationMs} -- see collision.js's climbableAt()
 export const portalBeams = []; // the glowing columns, animated (a slow spin) each frame in game.js's tick()
+// Everything the map builds lives under one group, so a different map can be swapped in (see clearWorld).
+export const worldRoot = new THREE.Group();
+scene.add(worldRoot);
 
 // Registers a static mesh as real solid structure: standable from above
 // (via `collidables`, used by the downward ground raycast), blocking
@@ -64,7 +67,7 @@ export function addBox(position, size, color, texture, tileSize) {
   const mat = new THREE.MeshLambertMaterial(matOptions);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(position[0], position[1], position[2]);
-  scene.add(mesh);
+  worldRoot.add(mesh);
   return mesh;
 }
 
@@ -75,12 +78,13 @@ function addPbrBox(b) {
   // The map color is a flat tint on the photo. Pulled 40% toward white so the darkest trim (#2b2b2e)
   // reads as dark concrete instead of black: the photo should carry the surface, not the tint.
   const tint = new THREE.Color(parseInt(b.color.slice(1), 16)).lerp(new THREE.Color(0xffffff), 0.4);
-  const set = b.climb ? "brushed" : b.tile ? "plaster" : "concrete";
+  // A map box can name its surface outright ("concrete", "plaster", "brushed"); otherwise the role picks it.
+  const set = b.surface || (b.climb ? "brushed" : b.tile ? "plaster" : "concrete");
   const t = Math.max(b.tile || 2.5, 0.01);
   const mat = pbrMaterial(set, tint, 1, 1);
   const mesh = new THREE.Mesh(boxUVs(new THREE.BoxGeometry(sx, sy, sz), sx, sy, sz, t), mat);
   mesh.position.set(b.c[0], b.c[1], b.c[2]);
-  scene.add(mesh);
+  worldRoot.add(mesh);
   return mesh;
 }
 
@@ -129,7 +133,7 @@ function addGround(box) {
   const mat = pbrMaterial("grass", 0xb4e07a, 1, 1);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(...box.c);
-  scene.add(mesh);
+  worldRoot.add(mesh);
   registerSolid(mesh);
 }
 
@@ -149,10 +153,9 @@ function addMountains() {
     const mesh = new THREE.Mesh(copyUv1(new THREE.ConeGeometry(r, h, sides)), mat);
     mesh.position.set(x, h / 2 - 2, z);
     mesh.rotation.y = i * 0.7;
-    scene.add(mesh);
+    worldRoot.add(mesh);
   }
 }
-addMountains();
 
 // ---- Scattered trees and rocks for foreground detail ----
 // Small seeded PRNG (mulberry32) so every tree's canopy comes out the same on every load.
@@ -214,7 +217,7 @@ function addTree(x, z) {
   group.add(trunk);
   addCanopy(group, Math.round(x * 100) * 1000 + Math.round(z * 100));
   group.position.set(x, 0, z);
-  scene.add(group);
+  worldRoot.add(group);
   // Bullet-blocking only -- deliberately not registerSolid(), so trees
   // don't also become standable/walk-collision geometry (not asked for).
   bulletBlockers.push(group);
@@ -227,7 +230,7 @@ function addRock(x, z, scale) {
   );
   rock.position.set(x, 0.3 * scale, z);
   rock.rotation.set(scale * 1.3, scale * 2.1, 0);
-  scene.add(rock);
+  worldRoot.add(rock);
   bulletBlockers.push(rock);
 }
 
@@ -245,7 +248,7 @@ function addPortal(p) {
     new THREE.MeshBasicMaterial({ color: PORTAL_GLOW })
   );
   pad.position.set(p.c[0], feetY + 0.03, p.c[2]);
-  scene.add(pad);
+  worldRoot.add(pad);
 
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(p.r * 0.55, p.r * 0.55, 3.2, 24, 1, true),
@@ -255,7 +258,7 @@ function addPortal(p) {
     })
   );
   beam.position.set(p.c[0], feetY + 1.6, p.c[2]);
-  scene.add(beam);
+  worldRoot.add(beam);
   portalBeams.push(beam);
 
   portals.push({ x: p.c[0], y: p.c[1], z: p.c[2], r: p.r, to: p.to });
@@ -273,7 +276,7 @@ function addRamp(start, end, width, thickness) {
   const mesh = new THREE.Mesh(boxUVs(new THREE.BoxGeometry(width, thickness, length), width, thickness, length, 2.5), mat);
   mesh.position.copy(mid);
   mesh.lookAt(startV);
-  scene.add(mesh);
+  worldRoot.add(mesh);
   // Deliberately NOT registerSolid(): an inclined mesh's axis-aligned Box3
   // has to span its full rise (loose bounding box around a rotated
   // shape), which would block the player from walking along the ramp at
@@ -287,6 +290,7 @@ function addRamp(start, end, width, thickness) {
 }
 
 export function buildWorld(MAP) {
+  addMountains();
   // ---- Build the world from the shared map file (web/map.json) ----
   // The server loads this exact file for bullet blocking, spawn safety, and
   // movement validation, so walls/building/ramps/trees/rocks only ever
@@ -301,7 +305,7 @@ export function buildWorld(MAP) {
         new THREE.MeshLambertMaterial({ color: 0x8fd0e6, transparent: true, opacity: 0.28 })
       );
       glass.position.set(...b.c);
-      scene.add(glass);
+      worldRoot.add(glass);
       registerSolid(glass, b.bullets !== false);
     } else {
       registerSolid(addPbrBox(b), b.bullets !== false);
@@ -319,4 +323,18 @@ export function buildWorld(MAP) {
   MAP.rocks.forEach(([x, z, s]) => addRock(x, z, s));
   MAP.ramps.forEach((r) => addRamp(r.a, r.b, r.w, r.t));
   (MAP.portals || []).forEach((p) => addPortal(p));
+}
+
+// Removes the current map's meshes and empties every collision and trigger list, so buildWorld() can
+// build another map in its place. The shared materials and textures stay cached.
+export function clearWorld() {
+  for (const child of [...worldRoot.children]) {
+    worldRoot.remove(child);
+    child.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+    });
+  }
+  for (const list of [collidables, solidBoxes, bulletBlockers, portals, climbables, portalBeams, rampColliders]) {
+    list.length = 0;
+  }
 }

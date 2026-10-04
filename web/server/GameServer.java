@@ -136,7 +136,7 @@ public class GameServer {
      * A climbable box: pressing space within {@code CLIMB_RANGE} of it (and below its top) starts a
      * timed climb (see the "climb" message in handleMessage) that ends standing on {@code (centerX,
      * topY, centerZ)}. Built from any {@code boxes} entry with a "climb" field (its duration, ms) --
-     * same box data as SOLIDS, just additionally climbable.
+     * same box data as geo.solids, just additionally climbable.
      */
     static final class Climbable {
         final double minX, maxX, minZ, maxZ, topY, centerX, centerZ;
@@ -157,13 +157,27 @@ public class GameServer {
     private static final double PORTAL_VERT_TOLERANCE = 1.2;
     private static final double CLIMB_RANGE = 1.3;         // horizontal reach, from the box's nearest face
     private static final double CLIMB_LAND_MARGIN = 0.3;   // once feet are this close to the top, it's "climbed" already
-    private static final List<Solid> SOLIDS = new ArrayList<>();
-    private static final List<Ramp> RAMPS = new ArrayList<>();
-    private static final List<Portal> PORTALS = new ArrayList<>();
-    private static final List<Climbable> CLIMBABLES = new ArrayList<>();
+    /** One playable map's static geometry: solids, ramps, portals and climbable boxes. */
+    static final class MapGeo {
+        final String id, name, blurb;
+        final List<Solid> solids = new ArrayList<>();
+        final List<Ramp> ramps = new ArrayList<>();
+        final List<Portal> portals = new ArrayList<>();
+        final List<Climbable> climbables = new ArrayList<>();
+
+        MapGeo(String id, String name, String blurb) {
+            this.id = id;
+            this.name = name;
+            this.blurb = blurb;
+        }
+    }
+
+    // Every playable map, by id, loaded at startup from web/maps/index.json. A room is played on one of them.
+    private static final Map<String, MapGeo> MAPS = new LinkedHashMap<>();
+    private static final String DEFAULT_MAP = "arena";
 
     @SuppressWarnings("unchecked")
-    private static void loadMap(File file) throws IOException {
+    private static void loadMapFile(MapGeo geo, File file) throws IOException {
         Map<String, Object> map = Json.parseObject(Files.readString(file.toPath()));
 
         for (Object o : (List<Object>) map.get("boxes")) {
@@ -171,40 +185,67 @@ public class GameServer {
             double[] c = toDoubleArray((List<Object>) b.get("c"));
             double[] s = toDoubleArray((List<Object>) b.get("s"));
             boolean bullets = !Boolean.FALSE.equals(b.get("bullets"));
-            SOLIDS.add(new Solid(c[0], c[1], c[2], s[0], s[1], s[2], bullets, true));
+            geo.solids.add(new Solid(c[0], c[1], c[2], s[0], s[1], s[2], bullets, true));
             if (b.get("climb") instanceof Number) {
-                CLIMBABLES.add(new Climbable(c[0], c[1], c[2], s[0], s[1], s[2], ((Number) b.get("climb")).longValue()));
+                geo.climbables.add(new Climbable(c[0], c[1], c[2], s[0], s[1], s[2], ((Number) b.get("climb")).longValue()));
             }
         }
         // Bounding boxes around the client's tree/rock meshes (cone + trunk, and a dodecahedron).
         for (Object o : (List<Object>) map.get("trees")) {
             double[] t = toDoubleArray((List<Object>) o);
-            SOLIDS.add(new Solid(t[0], 1.8, t[1], 1.6, 3.6, 1.6, true, false));
+            geo.solids.add(new Solid(t[0], 1.8, t[1], 1.6, 3.6, 1.6, true, false));
         }
         for (Object o : (List<Object>) map.get("rocks")) {
             double[] r = toDoubleArray((List<Object>) o);
             double s = r[2];
-            SOLIDS.add(new Solid(r[0], 0.3 * s, r[1], 1.2 * s, 1.2 * s, 1.2 * s, true, false));
+            geo.solids.add(new Solid(r[0], 0.3 * s, r[1], 1.2 * s, 1.2 * s, 1.2 * s, true, false));
         }
         for (Object o : (List<Object>) map.get("ramps")) {
             Map<String, Object> r = (Map<String, Object>) o;
-            RAMPS.add(new Ramp(toDoubleArray((List<Object>) r.get("a")), toDoubleArray((List<Object>) r.get("b")),
+            geo.ramps.add(new Ramp(toDoubleArray((List<Object>) r.get("a")), toDoubleArray((List<Object>) r.get("b")),
                     ((Number) r.get("w")).doubleValue(), ((Number) r.get("t")).doubleValue()));
         }
         if (map.get("portals") != null) {
             for (Object o : (List<Object>) map.get("portals")) {
                 Map<String, Object> p = (Map<String, Object>) o;
-                PORTALS.add(new Portal(toDoubleArray((List<Object>) p.get("c")),
+                geo.portals.add(new Portal(toDoubleArray((List<Object>) p.get("c")),
                         ((Number) p.get("r")).doubleValue(), toDoubleArray((List<Object>) p.get("to"))));
             }
         }
-        System.out.println("Loaded map: " + SOLIDS.size() + " solids, " + RAMPS.size() + " ramps, " + PORTALS.size()
-                + " portals, " + CLIMBABLES.size() + " climbables");
+        System.out.println("Loaded map: " + geo.solids.size() + " solids, " + geo.ramps.size() + " ramps, " + geo.portals.size()
+                + " portals, " + geo.climbables.size() + " climbables");
+    }
+
+    private static void loadMaps() throws IOException {
+        Map<String, Object> index = Json.parseObject(Files.readString(new File(staticRoot, "maps/index.json").toPath()));
+        for (Object o : (List<Object>) index.get("maps")) {
+            Map<String, Object> e = (Map<String, Object>) o;
+            MapGeo geo = new MapGeo((String) e.get("id"), (String) e.get("name"), (String) e.get("blurb"));
+            loadMapFile(geo, new File(staticRoot, "maps/" + e.get("file")));
+            MAPS.put(geo.id, geo);
+        }
+    }
+
+    /** The map a room should use: the requested id if it exists, else the default. */
+    private static MapGeo mapFor(String id) {
+        MapGeo m = id == null ? null : MAPS.get(id);
+        return m != null ? m : MAPS.get(DEFAULT_MAP);
+    }
+
+    private static MapGeo randomMap() {
+        List<MapGeo> all = new ArrayList<>(MAPS.values());
+        return all.get(random.nextInt(all.size()));
+    }
+
+    private static String mapsJson() {
+        List<String> items = new ArrayList<>();
+        for (MapGeo m : MAPS.values()) items.add(Json.obj("id", m.id, "name", m.name, "blurb", m.blurb));
+        return "{\"maps\":[" + String.join(",", items) + "]}";
     }
 
     /** The portal whose trigger volume {@code pos} (eye-height) is currently inside, or null. */
-    private static Portal portalAt(double[] pos) {
-        for (Portal p : PORTALS) {
+    private static Portal portalAt(MapGeo geo, double[] pos) {
+        for (Portal p : geo.portals) {
             double dx = pos[0] - p.c[0], dz = pos[2] - p.c[2];
             if (dx * dx + dz * dz <= p.r * p.r && Math.abs(pos[1] - p.c[1]) <= PORTAL_VERT_TOLERANCE) return p;
         }
@@ -212,9 +253,9 @@ public class GameServer {
     }
 
     /** The climbable box {@code pos} (eye-height) is within reach of and still below the top of, or null. */
-    private static Climbable climbableAt(double[] pos) {
+    private static Climbable climbableAt(MapGeo geo, double[] pos) {
         double feetY = pos[1] - EYE_HEIGHT;
-        for (Climbable c : CLIMBABLES) {
+        for (Climbable c : geo.climbables) {
             if (feetY >= c.topY - CLIMB_LAND_MARGIN) continue; // already (near enough) on top
             double nearestX = Math.max(c.minX, Math.min(pos[0], c.maxX));
             double nearestZ = Math.max(c.minZ, Math.min(pos[2], c.maxZ));
@@ -284,14 +325,14 @@ public class GameServer {
     }
 
     /** Nearest bullet-blocking thing along the (normalized) ray: walls, building, ramps, trees, rocks, ground. */
-    private static double nearestObstacleDistance(double[] origin, double[] dir) {
+    private static double nearestObstacleDistance(MapGeo geo, double[] origin, double[] dir) {
         double nearest = Double.MAX_VALUE;
-        for (Solid s : SOLIDS) {
+        for (Solid s : geo.solids) {
             if (!s.blocksBullets) continue;
             Double t = rayAabb(origin, dir, s.min, s.max);
             if (t != null && t < nearest) nearest = t;
         }
-        for (Ramp r : RAMPS) {
+        for (Ramp r : geo.ramps) {
             Double t = rayRamp(origin, dir, r);
             if (t != null && t < nearest) nearest = t;
         }
@@ -339,11 +380,13 @@ public class GameServer {
     static final class Room {
         final String code;
         final boolean isPublic;
+        final MapGeo map;
         final Map<Integer, Player> players = new ConcurrentHashMap<>();
 
-        Room(String code, boolean isPublic) {
+        Room(String code, boolean isPublic, MapGeo map) {
             this.code = code;
             this.isPublic = isPublic;
+            this.map = map;
         }
 
         boolean isFull() {
@@ -392,7 +435,7 @@ public class GameServer {
      * Puts a player in a room according to how they asked to join. Returns null on
      * success or a short human-readable reason if they can't join.
      */
-    private static String placeInRoom(Player p, String mode, String code) {
+    private static String placeInRoom(Player p, String mode, String code, String mapId) {
         synchronized (roomLock) {
             Room room = null;
             if ("code".equals(mode)) {
@@ -400,14 +443,14 @@ public class GameServer {
                 if (room == null) return "No room with that code";
                 if (room.isFull()) return "That room is full";
             } else if ("create".equals(mode)) {
-                room = new Room(newRoomCode(), false);
+                room = new Room(newRoomCode(), false, mapFor(mapId));
                 rooms.put(room.code, room);
             } else { // quick play: the fullest public room that still has space, else a new one
                 for (Room r : rooms.values()) {
                     if (r.isPublic && !r.isFull() && (room == null || r.players.size() > room.players.size())) room = r;
                 }
                 if (room == null) {
-                    room = new Room(newRoomCode(), true);
+                    room = new Room(newRoomCode(), true, randomMap());
                     rooms.put(room.code, room);
                 }
             }
@@ -458,7 +501,7 @@ public class GameServer {
     public static void main(String[] args) throws IOException {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", args.length > 0 ? args[0] : "8080"));
         staticRoot = new File("web").isDirectory() ? "web" : ".";
-        loadMap(new File(staticRoot, "map.json"));
+        loadMaps();
         stats = new Stats(new File(System.getenv().getOrDefault("STATS_FILE", "data/stats.json")));
         scheduler.scheduleAtFixedRate(stats::saveIfDirty, 20, 20, TimeUnit.SECONDS);
         scheduler.scheduleAtFixedRate(GameServer::pingEveryone, 1, 2, TimeUnit.SECONDS);
@@ -672,6 +715,10 @@ public class GameServer {
             writeResponse(out, 200, "application/json; charset=utf-8", healthJson().getBytes(StandardCharsets.UTF_8),
                     "Cache-Control: no-store\r\n");
             socket.close();
+            return;
+        }
+        if (path.equals("/maps")) {
+            writeResponse(out, 200, "application/json; charset=utf-8", mapsJson().getBytes(StandardCharsets.UTF_8), null);
             return;
         }
         if (path.equals("/stats")) {
@@ -990,7 +1037,7 @@ public class GameServer {
         for (int attempt = 0; attempt < SPAWN_ATTEMPTS; attempt++) {
             double x = (random.nextDouble() - 0.5) * 34;
             double z = -2 - random.nextDouble() * 26;
-            if (spawnBlocked(x, z)) continue; // never spawn inside a wall/tree/rock
+            if (spawnBlocked(room.map, x, z)) continue; // never spawn inside a wall/tree/rock
 
             double minDist = Double.MAX_VALUE;
             for (Player p : room.players.values()) {
@@ -1027,6 +1074,8 @@ public class GameServer {
                 "killLimit", KILL_LIMIT,
                 "room", room.code,
                 "roomPublic", room.isPublic,
+                "map", room.map.id,
+                "mapName", room.map.name,
                 "maxPlayers", MAX_PLAYERS_PER_ROOM,
                 "players", Json.raw("[" + String.join(",", others) + "]")));
         room.broadcastExcept(player.id, Json.obj("type", "playerJoined", "id", player.id, "name", player.name));
@@ -1053,7 +1102,7 @@ public class GameServer {
                 player.name = sanitizeName(obj.get("name"), player.id);
                 Object modeObj = obj.get("mode");
                 String mode = "quick".equals(modeObj) || "create".equals(modeObj) || "code".equals(modeObj) ? (String) modeObj : "quick";
-                String failure = placeInRoom(player, mode, sanitizeCode(obj.get("code")));
+                String failure = placeInRoom(player, mode, sanitizeCode(obj.get("code")), obj.get("map") instanceof String ? (String) obj.get("map") : null);
                 if (failure != null) {
                     player.sendText(Json.obj("type", "error", "reason", failure));
                     scheduler.schedule(() -> closeQuietly(player.socket), 200, TimeUnit.MILLISECONDS);
@@ -1128,7 +1177,7 @@ public class GameServer {
     private static void startClimb(Player p) {
         Room room = p.room;
         if (room == null || !p.alive || p.climbing) return;
-        Climbable c = climbableAt(p.pos);
+        Climbable c = climbableAt(p.room.map, p.pos);
         if (c == null) return;
         p.climbing = true;
         p.awaitingSync = true; // ignore state reports until the climb lands and resyncs, like a respawn
@@ -1192,7 +1241,7 @@ public class GameServer {
         if (claimed != null && distance(claimed, origin) <= (melee ? ORIGIN_TOLERANCE_MELEE : ORIGIN_TOLERANCE)) origin = claimed;
         // A wall/tree/rock in the way beats every player behind it, same as
         // the client's own raycast against the map's solid geometry.
-        double obstacleDist = nearestObstacleDistance(origin, dir);
+        double obstacleDist = nearestObstacleDistance(shooter.room.map, origin, dir);
 
         // Lag compensation: the shooter aimed at where they SAW each target -- a state report that had to reach
         // the server, come back down to the shooter, and be drawn -- so check against that moment in each
@@ -1315,7 +1364,7 @@ public class GameServer {
         double dv = Math.abs(to[1] - p.pos[1]);
         if (dh > p.horizBudget) return "speed";
         if (dv > p.vertBudget) return "vertical speed";
-        if (crossesSolid(p.pos, to)) return "solid";
+        if (crossesSolid(p.room.map, p.pos, to)) return "solid";
 
         p.horizBudget -= dh;
         p.vertBudget -= dv;
@@ -1323,12 +1372,12 @@ public class GameServer {
     }
 
     /** True if the straight path from -> to (at eye level and just above the feet) enters a walk-solid box. */
-    private static boolean crossesSolid(double[] from, double[] to) {
+    private static boolean crossesSolid(MapGeo geo, double[] from, double[] to) {
         double[] d = {to[0] - from[0], to[1] - from[1], to[2] - from[2]};
         if (length(d) < 1e-9) return false;
         for (double yOff : new double[]{0, -EYE_HEIGHT + 0.05}) {
             double[] o = {from[0], from[1] + yOff, from[2]};
-            for (Solid s : SOLIDS) {
+            for (Solid s : geo.solids) {
                 if (!s.walkSolid) continue;
                 double[] t = slab(o, d, s.smin, s.smax);
                 if (t != null && t[1] >= 0 && t[0] <= 1) return true;
@@ -1338,8 +1387,8 @@ public class GameServer {
     }
 
     /** A spawn point must not sit inside (or hugging) anything a standing body would overlap. */
-    private static boolean spawnBlocked(double x, double z) {
-        for (Solid s : SOLIDS) {
+    private static boolean spawnBlocked(MapGeo geo, double x, double z) {
+        for (Solid s : geo.solids) {
             if (s.max[1] < 0.3 || s.min[1] > 1.9) continue; // doesn't overlap a standing body's height
             if (x > s.min[0] - 0.5 && x < s.max[0] + 0.5 && z > s.min[2] - 0.5 && z < s.max[2] + 0.5) return true;
         }
@@ -1402,7 +1451,7 @@ public class GameServer {
         // in the room, including this one: the client already predicted this locally on contact (same
         // map data), so it mostly just confirms that; a remote player snaps to the exit instantly rather
         // than smoothly gliding there, same as a respawn.
-        Portal entered = portalAt(p.pos);
+        Portal entered = portalAt(p.room.map, p.pos);
         if (entered != null) {
             p.setPos(entered.to.clone(), true);
             p.awaitingSync = true;

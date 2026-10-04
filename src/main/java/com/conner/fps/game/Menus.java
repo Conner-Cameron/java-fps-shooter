@@ -1,5 +1,6 @@
 package com.conner.fps.game;
 
+import com.conner.fps.data.MapData;
 import com.conner.fps.data.Weapons;
 import com.conner.fps.engine.Input;
 import com.conner.fps.net.ServerInfo;
@@ -30,6 +31,7 @@ public final class Menus {
         public String server = "";
         public String roomMode = "quick"; // "quick" | "create" | "code"
         public String roomCode = "";
+        public String map = "";        // the map a created room is played on ("" = the server default)
     }
 
     /** Screen-space rectangle (top-left origin) where a weapon preview should be rendered. */
@@ -57,6 +59,7 @@ public final class Menus {
     private static final String[] ROOM_MODES = {"quick", "create", "code"};
     private int focusedField = 0; // 0 = name, 1 = server, 2 = room code
     private int roomMode = 0;     // index into ROOM_MODES
+    private int mapIndex = 0;     // index into MapData.catalog() for a room created here
     private String roomCode = "";
     private String roomError = "";
     private volatile List<ServerInfo.Leader> leaders = List.of();
@@ -187,6 +190,23 @@ public final class Menus {
                 } else if (focusedField == 2) {
                     focusedField = 0;
                 }
+                    // Map row: always shown; only live for Create Room (the map a created room is played on)
+                boolean creating = roomMode == 1;
+                float da = creating ? 1f : 0.35f;
+                    List<String[]> maps = MapData.catalog();
+                    float mbw = 130, mgap = 8, mbx = cx - (maps.size() * mbw + (maps.size() - 1) * mgap) / 2f;
+                    for (int i = 0; i < maps.size(); i++) {
+                        float x = mbx + i * (mbw + mgap);
+                        String label = maps.get(i)[1];
+                        boolean sel = mapIndex == i;
+                        boolean hover = creating && inside(cursorX, cursorY, x, py, mbw, 30);
+                        if (sel) ui.rect(x, py, mbw, 30, YELLOW[0], YELLOW[1], YELLOW[2], da);
+                        else ui.rect(x, py, mbw, 30, hover ? 0.25f : 0.05f, hover ? 0.25f : 0.05f, hover ? 0.28f : 0.06f, 0.85f * da);
+                        float tc = sel ? 0.10f : 1f;
+                        ui.text(fonts.small, label, x + (mbw - fonts.small.width(label)) / 2f, py + (30 - fonts.small.lineHeight) / 2f, tc, sel ? 0.08f : 1f, sel ? 0f : 1f, da);
+                        if (hover && click) mapIndex = i;
+                    }
+                    py += 40;
                 editFocused();
 
                 boolean go = bigButtonSmall(ui, fonts, "Click to Play", cx - 90, py, 180, 42, cursorX, cursorY) && click;
@@ -201,6 +221,7 @@ public final class Menus {
                         action.server = server.trim();
                         action.roomMode = ROOM_MODES[roomMode];
                         action.roomCode = roomMode == 2 ? roomCode : "";
+                        action.map = roomMode == 1 ? MapData.catalog().get(mapIndex)[0] : "";
                     }
                 }
                 String msg = hint != null && !hint.isEmpty() ? hint : roomError;

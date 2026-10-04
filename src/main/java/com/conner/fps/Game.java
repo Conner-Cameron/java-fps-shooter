@@ -63,6 +63,7 @@ public class Game implements PvpSession.Hooks {
     private Hud hud;
     private WorldTextures textures;
     private World world;
+    private String mapId = "arena"; // the map the world is currently built from
     private GunModels gunModels;
     private Sounds sounds;
     private Menus menus;
@@ -207,6 +208,7 @@ public class Game implements PvpSession.Hooks {
     private void update(float dt) {
         if (pvp != null) {
             pvp.poll(this);
+            if (pvp.mapId != null) useMap(pvp.mapId);
             pvp.interpolate(dt);
             if (pvp.joinError != null) failJoin(pvp.joinError);
             else if (pvp.myId < 0 && pvp.client().failed()) failJoin(pvp.client().status());
@@ -439,6 +441,7 @@ public class Game implements PvpSession.Hooks {
                 break;
             case Menus.Action.START_TRAINING:
                 gameMode = "training";
+                useMap("arena");
                 practice.spawnAll();
                 score = 0;
                 window.setTitle("Java FPS Shooter | Score: 0");
@@ -450,7 +453,7 @@ public class Game implements PvpSession.Hooks {
                 pvp = new PvpSession(client, a.name);
                 String url = a.server.isEmpty() ? serverDefault : a.server;
                 menuHint = "";
-                client.connect(url, a.name, a.roomMode, a.roomCode);
+                client.connect(url, a.name, a.roomMode, a.roomCode, a.map);
                 beginPlaying();
                 break;
             case Menus.Action.RESUME:
@@ -497,6 +500,7 @@ public class Game implements PvpSession.Hooks {
 
     /** Leaves the current game for good -- drops the match connection, resets all game state, and returns to mode select. */
     private void leaveGame() {
+        useMap("arena");
         if (pvp != null) {
             pvp.client().close();
             pvp = null;
@@ -770,6 +774,14 @@ public class Game implements PvpSession.Hooks {
 
     public void startPvp(String name, String server) {
         startPvp(name, server, "quick", "");
+    }
+
+    /** Swaps the built world to another map (no-op if it is already the one built). */
+    private void useMap(String id) {
+        if (id.equals(mapId)) return;
+        world.cleanup();
+        world = new World(MapData.load(id), textures);
+        mapId = id;
     }
 
     public void startPvp(String name, String server, String roomMode, String roomCode) {

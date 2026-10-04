@@ -36,6 +36,7 @@ public final class GameClient implements WebSocket.Listener {
     private String playerName = "";
     private String roomMode = "quick";
     private String roomCode = "";
+    private String roomMap = "";
 
     public boolean isConnected() {
         return connected;
@@ -60,9 +61,15 @@ public final class GameClient implements WebSocket.Listener {
      * answers -- {@link #status()} reports the wait -- and only then opens the WebSocket.
      */
     public void connect(String url, String playerName, String mode, String code) {
+        connect(url, playerName, mode, code, "");
+    }
+
+    /** As above; {@code map} is the map a new room is created with (ignored when joining an existing room). */
+    public void connect(String url, String playerName, String mode, String code, String map) {
         this.playerName = playerName;
         this.roomMode = mode;
         this.roomCode = code == null ? "" : code;
+        this.roomMap = map == null ? "" : map;
         failed = false;
         status = "Connecting to " + url + "â¦";
         Thread t = new Thread(() -> {
@@ -142,7 +149,7 @@ public final class GameClient implements WebSocket.Listener {
         socket = webSocket;
         connected = true;
         status = "Connected";
-        send(Json.obj("type", "join", "name", playerName, "mode", roomMode, "code", roomCode));
+        send(Json.obj("type", "join", "name", playerName, "mode", roomMode, "code", roomCode, "map", roomMap));
         webSocket.request(1);
     }
 

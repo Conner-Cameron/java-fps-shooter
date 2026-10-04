@@ -23,7 +23,7 @@ import { renderer, scene, camera, BASE_FOV } from "./js/core.js";
 import { WEAPONS, KNIFE_INDEX } from "./js/weapons.js";
 import { hazardTexture } from "./js/textures.js";
 import { playGunshot, playReloadSound, playMeleeSwing, playHitTick, resumeAudio } from "./js/audio.js";
-import { bulletBlockers, addBox, buildWorld, portalBeams } from "./js/world.js";
+import { bulletBlockers, addBox, buildWorld, clearWorld, portalBeams } from "./js/world.js";
 import {
   targets, randomArenaPosition, randomTargetHp, randomTargetMotion, randomTargetSize, createPracticeTargets,
   clearPracticeTargets
@@ -40,17 +40,27 @@ import {
   renderTrainingScore, setRoomCode
 } from "./js/hud.js";
 
-// World geometry lives in map.json (shared with the server) -- fetched
-// first so everything below can build synchronously from it as before.
-let MAP;
+// World geometry lives in web/maps (shared with the server). Every map is fetched up front, so a PvP room's
+// map can be swapped in synchronously. Aim Training always runs on the arena (map.json).
+const mapFiles = {};
+let mapId = "arena";
 try {
-  MAP = await (await fetch("map.json")).json();
+  const index = await (await fetch("maps/index.json")).json();
+  for (const entry of index.maps) mapFiles[entry.id] = await (await fetch("maps/" + entry.file)).json();
 } catch (e) {
-  document.body.textContent = "Failed to load map data (map.json).";
+  document.body.textContent = "Failed to load map data.";
   throw e;
 }
 
-buildWorld(MAP);
+buildWorld(mapFiles.arena);
+
+// Swaps the built world to another map (no-op if it is already the one built).
+function useMap(id) {
+  if (!mapFiles[id] || id === mapId) return;
+  clearWorld();
+  mapId = id;
+  buildWorld(mapFiles[id]);
+}
 
 // ================================================================
 // First-person weapon view-model (parented to the camera, so it stays
@@ -132,6 +142,7 @@ function handleServerMessage(msg) {
       break;
     }
     case "welcome": {
+      useMap(msg.map || "arena");
       myId = msg.id;
       killLimit = msg.killLimit;
       if (msg.pos) teleportLocalPlayer(msg.pos);
@@ -368,6 +379,7 @@ initMenus({
       gameMode = "training";
       // No connect() call at all -- Aim Training never opens a WebSocket,
       // so there is no way for another player to ever appear here.
+      useMap("arena");
       createPracticeTargets();
       document.getElementById("trainingHud").hidden = false;
       resumeAudio();
@@ -406,6 +418,7 @@ document.addEventListener("pointerlockchange", () => {
 // be chosen without reloading the page.
 function leaveGame({ keepLoadout = false } = {}) {
   disconnect();
+  useMap("arena");
   setRoomCode(null);
   for (const id of [...remotePlayers.keys()]) removeRemotePlayer(id);
   clearPracticeTargets();

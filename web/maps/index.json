@@ -1,0 +1,7 @@
+{
+  "maps": [
+    {"id": "arena", "name": "Arena", "file": "../map.json", "blurb": "Open arena with tower climbs, a roof-portal building, and a center wall."},
+    {"id": "warehouse", "name": "Warehouse", "file": "warehouse.json", "blurb": "Walled warehouse with offices, a loading hall and a mezzanine up a ramp. Close-quarters."},
+    {"id": "office", "name": "Office Block", "file": "office.json", "blurb": "Two-zone office with a central corridor, side rooms and an upper balcony. Doors, corridors and sightlines."}
+  ]
+}

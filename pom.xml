@@ -121,6 +121,7 @@
                 <directory>web</directory>
                 <includes>
                     <include>map.json</include>
+                    <include>maps/*.json</include>
                 </includes>
             </resource>
             <resource>

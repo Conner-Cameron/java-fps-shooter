@@ -49,6 +49,8 @@ public final class PvpSession {
     public int myHp = MAX_HP;
     public boolean dead = false;
     public String roomCode = "";
+    /** The map this room is played on, from the welcome message (null until then). */
+    public String mapId;
     public boolean roomPublic = true;
     /** Set when the server refused the join (unknown/full room); the game returns to the setup screen. */
     public String joinError = null;
@@ -113,6 +115,7 @@ public final class PvpSession {
                 myId = i(msg.get("id"));
                 killLimit = (int) Json.num(msg.get("killLimit"), 10);
                 if (msg.get("room") instanceof String) roomCode = (String) msg.get("room");
+                mapId = msg.get("map") instanceof String ? (String) msg.get("map") : "arena";
                 roomPublic = !Boolean.FALSE.equals(msg.get("roomPublic"));
                 if (msg.get("pos") != null) {
                     float[] p = pos(msg.get("pos"));

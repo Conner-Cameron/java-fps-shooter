@@ -68,7 +68,7 @@ export function setOverlayVisible(visible) {
 /**
  * Wires up the menu buttons.
  *  - onLoadoutChosen(weaponIdx): a weapon card was clicked
- *  - onStartPvp(name, room):     "Click to Play" on the PvP setup screen; room = { mode, code }
+ *  - onStartPvp(name, room):     "Click to Play" on the PvP setup screen; room = { mode, code, map }
  *  - onStartTraining():          "Click to Play" on the Aim Training setup screen
  *  - onResume():                 "Resume" on the pause screen
  *  - onLeave():                  "Leave Game" on the pause screen
@@ -108,10 +108,41 @@ export function initMenus({ onLoadoutChosen, onStartPvp, onStartTraining, onResu
   };
   const selectedRoomMode = () => document.querySelector('input[name="roomMode"]:checked').value;
 
+  // Map choices, shown for Create Room only. The list is the same maps/index.json the world loads from.
+  const mapPicker = document.getElementById("mapPicker");
+  const mapChoices = document.getElementById("mapChoices");
+  const mapBlurb = document.getElementById("mapBlurb");
+  const blurbs = {};
+  const selectedMap = () => document.querySelector('input[name="mapChoice"]:checked')?.value || "";
+  // The picker is always shown; it only applies when a room is created, so it is dimmed for the other lobbies.
+  const refreshMapPicker = () => {
+    const creating = selectedRoomMode() === "create";
+    mapPicker.classList.toggle("disabled", !creating);
+    mapBlurb.textContent = creating ? (blurbs[selectedMap()] || "") : "Choose Create Room to pick a map";
+  };
+  fetch("maps/index.json").then((r) => r.json()).then(({ maps }) => {
+    maps.forEach((m, i) => {
+      blurbs[m.id] = m.blurb;
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "mapChoice";
+      input.value = m.id;
+      input.checked = i === 0;
+      const span = document.createElement("span");
+      span.textContent = m.name;
+      label.append(input, span);
+      mapChoices.append(label);
+    });
+    mapChoices.addEventListener("change", refreshMapPicker);
+    refreshMapPicker();
+  }).catch(() => { mapBlurb.textContent = "Maps unavailable"; });
+
   document.querySelectorAll('input[name="roomMode"]').forEach((radio) => {
     radio.addEventListener("change", () => {
       const mode = selectedRoomMode();
       codeInput.hidden = mode !== "code";
+      refreshMapPicker();
       modeHint.textContent = HINTS[mode];
       setPvpError("");
       if (mode === "code") codeInput.focus();
@@ -127,7 +158,7 @@ export function initMenus({ onLoadoutChosen, onStartPvp, onStartTraining, onResu
       return;
     }
     setPvpError("");
-    onStartPvp(name, { mode, code });
+    onStartPvp(name, { mode, code, map: mode === "create" ? selectedMap() : "" });
   });
   document.getElementById("startTrainingBtn").addEventListener("click", () => onStartTraining());
   document.getElementById("resumeBtn").addEventListener("click", () => onResume());

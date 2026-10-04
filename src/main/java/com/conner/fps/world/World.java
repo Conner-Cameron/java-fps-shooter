@@ -131,7 +131,7 @@ public final class World {
                 translucent.add(new Prop(unit, m, tex.plain, new float[]{0.56f, 0.82f, 0.90f}, 1f, 1f, 0.28f));
             } else {
                 // Same surface choice as the web client: towers brushed concrete, the building plaster, the rest concrete.
-                Surface surface = b.climbMs > 0 ? tex.brushed : b.building ? tex.plaster : tex.concrete;
+                Surface surface = b.surface != null ? surfaceNamed(tex, b.surface) : b.climbMs > 0 ? tex.brushed : b.building ? tex.plaster : tex.concrete;
                 CubeMesh solid = ownCube(new CubeMesh(b.size[0], b.size[1], b.size[2], Math.max(b.tile, 0.01f)));
                 opaque.add(new Prop(solid, m, surface, softenTint(b.color), 1f, 1f, 1f));
             }
@@ -185,6 +185,12 @@ public final class World {
                     .rotateY(i * 0.7f).scale(r * 2f, h, r * 2f);
             opaque.add(new Prop(cones[i % 3], m, tex.rock, new float[]{0.541f, 0.572f, 0.666f}, r / 3f, h / 3f, 1f));
         }
+    }
+
+    private static Surface surfaceNamed(WorldTextures tex, String name) {
+        if (name.equals("brushed")) return tex.brushed;
+        if (name.equals("plaster")) return tex.plaster;
+        return tex.concrete;
     }
 
     private static float[] softenTint(float[] c) {
