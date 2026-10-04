@@ -16,6 +16,8 @@ public final class Player {
     public static final float GRAVITY = 18.0f;
     public static final float MOUSE_SENSITIVITY = 0.0022f;
     public static final float BASE_FOV = 70f;
+    private static final float WORLD_EDGE = 29.5f; // the ground plane is 60 wide; stay a little inside its edge
+    private static final float VOID_Y = -15f;      // below this the player has fallen out of the world
 
     public final Vector3f position = new Vector3f(0, World.EYE_HEIGHT, 8);
     public float yaw = (float) (-Math.PI / 2);
@@ -231,5 +233,12 @@ public final class Player {
         // its own authoritative position and is what actually moves the player for everyone else.
         com.conner.fps.data.MapData.Portal portal = world.portalAt(position);
         if (portal != null) teleport(portal.to[0], portal.to[1], portal.to[2]);
+
+        // The ground ends at +-30 and nothing lies below it: without these, walking off the edge
+        // falls forever. Keep the player on the ground, and if they somehow end up below the
+        // world, put them back at their last safe spot (same as the web client).
+        position.x = Math.max(-WORLD_EDGE, Math.min(WORLD_EDGE, position.x));
+        position.z = Math.max(-WORLD_EDGE, Math.min(WORLD_EDGE, position.z));
+        if (position.y < VOID_Y) teleport(lastSafeX, lastSafeY, lastSafeZ);
     }
 }

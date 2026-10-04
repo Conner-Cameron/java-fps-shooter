@@ -317,6 +317,8 @@ let isDead = false;
 // player, so standing on a cover wall or a building floor works the same
 // as standing on the ground plane.
 const EYE_HEIGHT = 1.7;
+const WORLD_EDGE = 29.5; // the ground plane is 60 wide; stay a little inside its edge
+const VOID_Y = -15;      // below this the player has fallen out of the world
 const JUMP_SPEED = 7.0;
 const GRAVITY = 18.0;
 let verticalVelocity = 0;
@@ -918,6 +920,13 @@ function tick(now) {
         if (enteredPortal) teleportLocalPlayer(enteredPortal.to);
       }
     }
+
+    // The ground ends at +-30 and nothing below it: without these, walking off the edge
+    // falls forever. Keep the player on the ground, and if they somehow end up below the
+    // world, put them back at their last safe spot.
+    camera.position.x = Math.max(-WORLD_EDGE, Math.min(WORLD_EDGE, camera.position.x));
+    camera.position.z = Math.max(-WORLD_EDGE, Math.min(WORLD_EDGE, camera.position.z));
+    if (camera.position.y < VOID_Y) teleportLocalPlayer([lastSafeX, lastSafeY, lastSafeZ]);
 
     camera.lookAt(
       camera.position.x + forward.x,
