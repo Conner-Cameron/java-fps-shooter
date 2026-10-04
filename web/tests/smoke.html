@@ -163,12 +163,11 @@
   wheel(); await wait(150);
 
   // ---------------- climbing a short tower ----------------
-  // The sprint+jump bursts above left the player roughly at (0, -13), stopped at the long cover
-  // wall. Short tower A sits at x[-7,-5], z[-6,-4] -- south of there: west to its edge, then south
-  // to its face, then Space climbs it (no normal jump could reach a box this tall).
+  // The sprint+jump bursts above left the player roughly at (0, -5.5), stopped at the center
+  // wall's south face. Short tower A sits at x[-13,-11], z[-7,-5] -- west from there (already
+  // within reach in z) and Space climbs it (no normal jump could reach a box this tall).
   check("climb: starts with a full magazine (24)", text("#ammoCount") === "24", text("#ammoCount"));
-  key("keydown", "KeyA"); await wait(900); key("keyup", "KeyA");
-  key("keydown", "KeyS"); await wait(1500); key("keyup", "KeyS");
+  key("keydown", "KeyA"); await wait(1900); key("keyup", "KeyA");
   await wait(100);
   key("keydown", "Space"); await wait(60); key("keyup", "Space");
   await wait(100);
