@@ -5,6 +5,7 @@ import com.conner.fps.engine.Shader;
 import com.conner.fps.render.CubeMesh;
 import com.conner.fps.render.Drawable;
 import com.conner.fps.render.ShapeMesh;
+import com.conner.fps.render.Surface;
 import com.conner.fps.render.Shapes;
 import com.conner.fps.render.Texture;
 import com.conner.fps.render.WorldTextures;
@@ -71,21 +72,37 @@ public final class World {
     private static final class Prop {
         final Drawable mesh;
         final Matrix4f model;
-        final Texture texture;
+        final Surface surface;
         final float[] tint;
         final float uvX, uvY;
         final float alpha;
+        final float cutout; // > 0: leaf-card cutout threshold (see surface_fragment.glsl)
 
-        Prop(Drawable mesh, Matrix4f model, Texture texture, float[] tint, float uvX, float uvY, float alpha) {
+        Prop(Drawable mesh, Matrix4f model, Surface surface, float[] tint, float uvX, float uvY, float alpha) {
+            this(mesh, model, surface, tint, uvX, uvY, alpha, 0f);
+        }
+
+        Prop(Drawable mesh, Matrix4f model, Surface surface, float[] tint, float uvX, float uvY, float alpha, float cutout) {
             this.mesh = mesh;
             this.model = model;
-            this.texture = texture;
+            this.surface = surface;
             this.tint = tint;
             this.uvX = uvX;
             this.uvY = uvY;
             this.alpha = alpha;
+            this.cutout = cutout;
         }
     }
+
+    private static final float[] WHITE = {1f, 1f, 1f};
+    // Web client's tint values (web/js/world.js): grass ground, and map-box colors pulled toward white.
+    private static final float[] GRASS_TINT = {0.706f, 0.878f, 0.478f};
+    private static final float TINT_SOFTEN = 0.4f;
+    private static final int CANOPY_CARDS = 70;
+    private static final float CANOPY_CENTER_Y = 2.5f;
+    private static final float LEAF_CUTOUT = 0.5f;
+    // The leaf photo is bright yellow-green under the desktop lights; pulled down toward the web client's deeper canopy.
+    private static final float[] LEAF_TINT = {0.55f, 0.72f, 0.5f};
 
     private final List<Solid> solids = new ArrayList<>();
     private final List<Solid> bulletOnly = new ArrayList<>(); // trees and rocks: stop gunfire but aren't walked into
@@ -95,28 +112,28 @@ public final class World {
     private final List<Prop> opaque = new ArrayList<>();
     private final List<Prop> translucent = new ArrayList<>();
     private final List<ShapeMesh> ownedMeshes = new ArrayList<>();
-    private final CubeMesh cube;
+    private final List<CubeMesh> ownedCubes = new ArrayList<>();
     private final Matrix3f normalScratch = new Matrix3f();
 
-    public World(MapData map, CubeMesh cube, WorldTextures tex) {
-        this.cube = cube;
+    public World(MapData map, WorldTextures tex) {
+        CubeMesh unit = ownCube(new CubeMesh());
         ShapeMesh trunk = own(Shapes.cylinder(6, 0.15f, 0.22f));
-        ShapeMesh leaves = own(Shapes.cone(7));
         ShapeMesh rock = own(Shapes.rock());
 
         for (MapData.Box b : map.boxes) {
             solids.add(new Solid(b.center, b.size, b.blocksBullets));
             Matrix4f m = new Matrix4f().translate(b.center[0], b.center[1], b.center[2]).scale(b.size[0], b.size[1], b.size[2]);
             if (b.ground) {
-                // One grass tile every ~6 units, matching the web client.
-                opaque.add(new Prop(cube, m, tex.grassPhoto, new float[]{0.863f, 0.937f, 0.706f}, b.size[0] / 6f, b.size[2] / 6f, 1f));
+                // One grass tile every ~6 units, matching the web client (its UVs are baked into the cube).
+                CubeMesh floor = ownCube(new CubeMesh(b.size[0], b.size[1], b.size[2], 6f));
+                opaque.add(new Prop(floor, m, tex.grass, GRASS_TINT, 1f, 1f, 1f));
             } else if (b.glass) {
-                translucent.add(new Prop(cube, m, tex.white, new float[]{0.56f, 0.82f, 0.90f}, 1f, 1f, 0.28f));
+                translucent.add(new Prop(unit, m, tex.plain, new float[]{0.56f, 0.82f, 0.90f}, 1f, 1f, 0.28f));
             } else {
                 // Same surface choice as the web client: towers brushed concrete, the building plaster, the rest concrete.
-                Texture surface = b.climbMs > 0 ? tex.brushedPhoto : b.building ? tex.plasterPhoto : tex.concretePhoto;
-                float t = Math.max(b.tile, 0.01f);
-                opaque.add(new Prop(cube, m, surface, b.color, Math.max(b.size[0] / t, 0.5f), Math.max(b.size[1] / t, 0.5f), 1f));
+                Surface surface = b.climbMs > 0 ? tex.brushed : b.building ? tex.plaster : tex.concrete;
+                CubeMesh solid = ownCube(new CubeMesh(b.size[0], b.size[1], b.size[2], Math.max(b.tile, 0.01f)));
+                opaque.add(new Prop(solid, m, surface, softenTint(b.color), 1f, 1f, 1f));
             }
             if (b.climbMs > 0) climbables.add(new Climbable(b.center, b.size, b.climbMs));
         }
@@ -124,20 +141,21 @@ public final class World {
         for (MapData.Ramp r : map.ramps) {
             Ramp ramp = new Ramp(r.a, r.b, r.width, r.thickness);
             ramps.add(ramp);
-            opaque.add(new Prop(cube, ramp.model, tex.concretePhoto, new float[]{0.706f, 0.694f, 0.659f},
-                    Math.max(r.width / 2f, 0.5f), Math.max(ramp.length / 2f, 0.5f), 1f));
+            CubeMesh rampMesh = ownCube(new CubeMesh(r.width, r.thickness, ramp.length, 2.5f));
+            opaque.add(new Prop(rampMesh, ramp.model, tex.concrete, new float[]{0.706f, 0.694f, 0.659f}, 1f, 1f, 1f));
         }
 
         for (float[] t : map.trees) {
             float x = t[0], z = t[1];
-            opaque.add(new Prop(trunk, new Matrix4f().translate(x, 0.8f, z).scale(1f, 1.6f, 1f), tex.barkPhoto, new float[]{1, 1, 1}, 1f, 2f, 1f));
-            opaque.add(new Prop(leaves, new Matrix4f().translate(x, 2.4f, z).scale(2.2f, 2.4f, 2.2f), tex.foliage, new float[]{1, 1, 1}, 1f, 1f, 1f));
+            opaque.add(new Prop(trunk, new Matrix4f().translate(x, 0.8f, z).scale(1f, 1.6f, 1f), tex.bark, WHITE, 1f, 2f, 1f));
+            ShapeMesh crown = own(Shapes.leafCanopy(treeSeed(x, z), CANOPY_CARDS, 1f));
+            opaque.add(new Prop(crown, new Matrix4f().translate(x, CANOPY_CENTER_Y, z), tex.leaf, LEAF_TINT, 1f, 1f, 1f, LEAF_CUTOUT));
             bulletOnly.add(new Solid(new float[]{x, 1.8f, z}, new float[]{1.6f, 3.6f, 1.6f}, true));
         }
         for (float[] r : map.rocks) {
             float x = r[0], z = r[1], s = r[2];
             Matrix4f m = new Matrix4f().translate(x, 0.3f * s, z).rotateXYZ(s * 1.3f, s * 2.1f, 0f).scale(1.2f * s);
-            opaque.add(new Prop(rock, m, tex.rockPhoto, new float[]{0.541f, 0.541f, 0.525f}, 1f, 1f, 1f));
+            opaque.add(new Prop(rock, m, tex.rock, new float[]{0.541f, 0.541f, 0.525f}, 1f, 1f, 1f));
             bulletOnly.add(new Solid(new float[]{x, 0.3f * s, z}, new float[]{1.2f * s, 1.2f * s, 1.2f * s}, true));
         }
 
@@ -150,9 +168,9 @@ public final class World {
             float feetY = p.center[1] - EYE_HEIGHT;
             float[] glow = {0.33f, 0.80f, 0.95f};
             Matrix4f pad = new Matrix4f().translate(p.center[0], feetY + 0.03f, p.center[2]).scale(p.radius, 0.06f, p.radius);
-            opaque.add(new Prop(portalShape, pad, tex.white, glow, 1f, 1f, 1f));
+            opaque.add(new Prop(portalShape, pad, tex.plain, glow, 1f, 1f, 1f));
             Matrix4f beam = new Matrix4f().translate(p.center[0], feetY + 1.6f, p.center[2]).scale(p.radius * 0.55f, 3.2f, p.radius * 0.55f);
-            translucent.add(new Prop(portalShape, beam, tex.white, glow, 1f, 1f, 0.22f));
+            translucent.add(new Prop(portalShape, beam, tex.plain, glow, 1f, 1f, 0.22f));
         }
 
         // Distant mountain ring so the arena doesn't float in a void.
@@ -165,8 +183,23 @@ public final class World {
             Matrix4f m = new Matrix4f()
                     .translate((float) Math.cos(angle) * dist, h / 2f - 2f, (float) Math.sin(angle) * dist)
                     .rotateY(i * 0.7f).scale(r * 2f, h, r * 2f);
-            opaque.add(new Prop(cones[i % 3], m, tex.rockPhoto, new float[]{0.541f, 0.572f, 0.666f}, r / 3f, h / 3f, 1f));
+            opaque.add(new Prop(cones[i % 3], m, tex.rock, new float[]{0.541f, 0.572f, 0.666f}, r / 3f, h / 3f, 1f));
         }
+    }
+
+    private static float[] softenTint(float[] c) {
+        float[] out = new float[3];
+        for (int i = 0; i < 3; i++) out[i] = c[i] + (1f - c[i]) * TINT_SOFTEN;
+        return out;
+    }
+
+    private static long treeSeed(float x, float z) {
+        return Math.round(x * 100) * 1000L + Math.round(z * 100);
+    }
+
+    private CubeMesh ownCube(CubeMesh c) {
+        ownedCubes.add(c);
+        return c;
     }
 
     private ShapeMesh own(ShapeMesh m) {
@@ -178,6 +211,7 @@ public final class World {
 
     /** Draws opaque geometry, then the translucent window glass. The scene shader must already be set up. */
     public void render(Shader shader) {
+        shader.use();
         for (Prop p : opaque) draw(shader, p);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -194,7 +228,8 @@ public final class World {
         shader.setVec2("uvScale", p.uvX, p.uvY);
         shader.setVec3("color", p.tint[0], p.tint[1], p.tint[2]);
         shader.setFloat("alpha", p.alpha);
-        p.texture.bind(0);
+        shader.setFloat("cutout", p.cutout);
+        p.surface.bind();
         p.mesh.render();
     }
 
@@ -363,5 +398,6 @@ public final class World {
 
     public void cleanup() {
         for (ShapeMesh m : ownedMeshes) m.cleanup();
+        for (CubeMesh c : ownedCubes) c.cleanup();
     }
 }

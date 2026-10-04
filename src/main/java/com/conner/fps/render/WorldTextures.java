@@ -12,48 +12,63 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.util.Random;
 import javax.imageio.ImageIO;
+import java.nio.ByteBuffer;
 
 /**
- * The web game's surface textures. Metal panels, foliage and hazard stripes are
- * procedural (painted with Java2D, same recipes as the web client). The map's
- * ground, walls, towers, building, rocks, mountains and trunks use the photo
- * sets from web/assets/textures (Poly Haven, CC0) -- color maps only here, since
- * the desktop shader has no normal or roughness input.
+ * The web game's surface textures. Metal panels and hazard stripes are procedural (painted with
+ * Java2D, same recipes as the web client). The map's ground, walls, towers, building, rocks,
+ * mountains and trunks use the photo sets from web/assets/textures (Poly Haven, CC0), and the
+ * tree canopies use the leaf photo (ambientCG, CC0); see {@link Surface} for the maps each carries.
  */
 public final class WorldTextures {
     public final Texture metal;
-    public final Texture foliage;
     public final Texture hazard;
     public final Texture white;
+    /** Untextured surfaces (portal pads, window glass): white color, flat normal, no occlusion. */
+    public final Surface plain;
+    private final Texture flatNormal = solid(128, 128, 255);
 
-    public final Texture grassPhoto;
-    public final Texture concretePhoto;
-    public final Texture brushedPhoto;
-    public final Texture plasterPhoto;
-    public final Texture rockPhoto;
-    public final Texture barkPhoto;
+    public final Surface grass;
+    public final Surface concrete;
+    public final Surface brushed;
+    public final Surface plaster;
+    public final Surface rock;
+    public final Surface bark;
+    public final Surface leaf;
 
     public WorldTextures() {
         Random rnd = new Random(42);
         metal = paint(256, rnd, WorldTextures::paintMetal);
-        foliage = paint(128, rnd, WorldTextures::paintFoliage);
         hazard = paint(128, rnd, WorldTextures::paintHazard);
         white = TextureGenerator.white();
-        grassPhoto = photo("sparse_grass");
-        concretePhoto = photo("concrete_panels");
-        brushedPhoto = photo("brushed_concrete_03");
-        plasterPhoto = photo("plastered_wall_02");
-        rockPhoto = photo("rock_face_03");
-        barkPhoto = photo("knotted_pine_bark");
+        plain = new Surface(white, flatNormal, white, white);
+        grass = photoSet("sparse_grass", white);
+        concrete = photoSet("concrete_panels", white);
+        brushed = photoSet("brushed_concrete_03", white);
+        plaster = photoSet("plastered_wall_02", white);
+        rock = photoSet("rock_face_03", white);
+        bark = photoSet("knotted_pine_bark", white);
+        leaf = new Surface(photo("leaf/color.jpg"), flatNormal, white, photo("leaf/opacity.jpg"));
     }
 
-    private static Texture photo(String set) {
-        try (InputStream in = WorldTextures.class.getResourceAsStream("/assets/textures/" + set + "/color.jpg")) {
-            if (in == null) throw new IOException("missing texture " + set);
+    /** A color, normal and ARM set from web/assets/textures/<set>/. */
+    private static Surface photoSet(String set, Texture noOpacity) {
+        return new Surface(photo(set + "/color.jpg"), photo(set + "/normal.jpg"), photo(set + "/arm.jpg"), noOpacity);
+    }
+
+    private static Texture photo(String path) {
+        try (InputStream in = WorldTextures.class.getResourceAsStream("/assets/textures/" + path)) {
+            if (in == null) throw new IOException("missing texture " + path);
             return Texture.fromImage(ImageIO.read(in), true, true);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static Texture solid(int r, int g, int b) {
+        ByteBuffer buf = ByteBuffer.allocateDirect(4).put((byte) r).put((byte) g).put((byte) b).put((byte) 255);
+        buf.flip();
+        return new Texture(1, 1, buf, false, false);
     }
 
     private interface Painter {
@@ -99,16 +114,6 @@ public final class WorldTextures {
         }
     }
 
-    private static void paintFoliage(Graphics2D g, int size, Random r) {
-        g.setColor(new Color(0x356b35));
-        g.fillRect(0, 0, size, size);
-        for (int i = 0; i < 1200; i++) {
-            double a = r.nextDouble() * 0.35;
-            g.setColor(r.nextBoolean() ? rgba(15, 45, 15, a) : rgba(95, 155, 75, a));
-            g.fillRect((int) (r.nextDouble() * size), (int) (r.nextDouble() * size), 3, 3);
-        }
-    }
-
     private static void paintHazard(Graphics2D g, int size, Random r) {
         g.setColor(new Color(0xc81e1e));
         g.fillRect(0, 0, size, size);
@@ -124,14 +129,14 @@ public final class WorldTextures {
 
     public void cleanup() {
         metal.cleanup();
-        foliage.cleanup();
         hazard.cleanup();
         white.cleanup();
-        grassPhoto.cleanup();
-        concretePhoto.cleanup();
-        brushedPhoto.cleanup();
-        plasterPhoto.cleanup();
-        rockPhoto.cleanup();
-        barkPhoto.cleanup();
+        flatNormal.cleanup();
+        for (Surface s : new Surface[]{grass, concrete, brushed, plaster, rock, bark, leaf}) {
+            s.color.cleanup();
+            s.normal.cleanup();
+            s.arm.cleanup();
+            s.opacity.cleanup();
+        }
     }
 }

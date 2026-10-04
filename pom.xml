@@ -130,7 +130,7 @@
                     <include>*.png</include>
                     <include>manifest.json</include>
                     <include>models/*.glb</include>
-                    <include>textures/*/color.jpg</include>
+                    <include>textures/**/*.jpg</include>
                 </includes>
             </resource>
         </resources>

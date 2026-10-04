@@ -2,6 +2,7 @@ package com.conner.fps.render;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 /** Generators for the few non-cube shapes the world needs (trees, rocks, mountains). */
 public final class Shapes {
@@ -61,6 +62,58 @@ public final class Shapes {
         return new ShapeMesh(toArray(v), toIntArray(idx));
     }
 
+    /**
+     * A tree crown: {@code cards} leaf cards scattered over a shell of the given radius around the origin.
+     * Every card shows the left leaf of the leaf photo (the right half of the image is a second leaf), and
+     * is emitted twice, facing each way, so it reads from either side. Same look as the web canopy.
+     */
+    public static ShapeMesh leafCanopy(long seed, int cards, float radius) {
+        Random rnd = new Random(seed);
+        List<Float> v = new ArrayList<>();
+        List<Integer> idx = new ArrayList<>();
+        for (int i = 0; i < cards; i++) {
+            double u = rnd.nextDouble() * 2 - 1;
+            double phi = rnd.nextDouble() * Math.PI * 2;
+            double s = Math.sqrt(1 - u * u);
+            float[] dir = norm(new float[]{(float) (s * Math.cos(phi)), (float) (u * 0.8), (float) (s * Math.sin(phi))});
+            float dist = radius * (0.85f + 0.4f * (float) rnd.nextDouble());
+            float[] c = {dir[0] * dist, dir[1] * dist, dir[2] * dist};
+            // Card axes: right is perpendicular to the outward direction; a random roll turns the card about it.
+            float[] up = Math.abs(dir[1]) > 0.99f ? new float[]{1, 0, 0} : new float[]{0, 1, 0};
+            float[] right = norm(cross(up, dir));
+            float[] up2 = cross(dir, right);
+            float roll = (float) (rnd.nextDouble() * Math.PI * 2);
+            float cr = (float) Math.cos(roll), sr = (float) Math.sin(roll);
+            float[] a = {right[0] * cr + up2[0] * sr, right[1] * cr + up2[1] * sr, right[2] * cr + up2[2] * sr};
+            float[] b = {-right[0] * sr + up2[0] * cr, -right[1] * sr + up2[1] * cr, -right[2] * sr + up2[2] * cr};
+            float h = (0.35f + 0.25f * (float) rnd.nextDouble()); // half the card side: 0.7 to 1.2 across
+            float[][] corner = new float[4][];
+            float[][] sign = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
+            for (int k = 0; k < 4; k++) {
+                corner[k] = new float[]{
+                        c[0] + (a[0] * sign[k][0] + b[0] * sign[k][1]) * h,
+                        c[1] + (a[1] * sign[k][0] + b[1] * sign[k][1]) * h,
+                        c[2] + (a[2] * sign[k][0] + b[2] * sign[k][1]) * h};
+            }
+            float[][] uv = {{0, 0}, {0.5f, 0}, {0.5f, 1}, {0, 1}};
+            for (int face = 0; face < 2; face++) {
+                float sg = face == 0 ? 1f : -1f;
+                int base = v.size() / 8;
+                for (int k = 0; k < 4; k++) {
+                    add(v, corner[k][0], corner[k][1], corner[k][2], dir[0] * sg, dir[1] * sg, dir[2] * sg, uv[k][0], uv[k][1]);
+                }
+                if (face == 0) {
+                    idx.add(base); idx.add(base + 1); idx.add(base + 2);
+                    idx.add(base + 2); idx.add(base + 3); idx.add(base);
+                } else { // reversed winding for the back face
+                    idx.add(base); idx.add(base + 2); idx.add(base + 1);
+                    idx.add(base + 2); idx.add(base); idx.add(base + 3);
+                }
+            }
+        }
+        return new ShapeMesh(toArray(v), toIntArray(idx));
+    }
+
     /** A flat-shaded icosahedron of radius 0.5 -- a chunky low-poly rock (scale it to size). */
     public static ShapeMesh rock() {
         float t = (float) ((1.0 + Math.sqrt(5.0)) / 2.0);
@@ -87,6 +140,10 @@ public final class Shapes {
             idx.add(base); idx.add(base + 1); idx.add(base + 2);
         }
         return new ShapeMesh(toArray(v), toIntArray(idx));
+    }
+
+    private static float[] cross(float[] a, float[] b) {
+        return new float[]{a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
     }
 
     private static float[] norm(float[] a) {

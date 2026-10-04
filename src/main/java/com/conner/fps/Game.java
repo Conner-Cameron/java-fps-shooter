@@ -54,6 +54,7 @@ public class Game implements PvpSession.Hooks {
     // ---- engine / rendering
     private Window window;
     private Shader sceneShader;
+    private Shader surfaceShader; // world geometry: photo PBR surfaces (see surface_fragment.glsl)
     private Shader skyShader;
     private Shader pbrShader;
     private CubeMesh cube;
@@ -134,6 +135,12 @@ public class Game implements PvpSession.Hooks {
         window.setEscapeHandler(this::onEscape);
 
         sceneShader = new Shader("/shaders/vertex.glsl", "/shaders/fragment.glsl");
+        surfaceShader = new Shader("/shaders/vertex.glsl", "/shaders/surface_fragment.glsl");
+        surfaceShader.use();
+        surfaceShader.setInt("tex", 0);
+        surfaceShader.setInt("normalTex", 1);
+        surfaceShader.setInt("armTex", 2);
+        surfaceShader.setInt("opacityTex", 3);
         skyShader = new Shader("/shaders/sky_vertex.glsl", "/shaders/sky_fragment.glsl");
         pbrShader = new Shader("/shaders/vertex.glsl", "/shaders/pbr_fragment.glsl");
         cube = new CubeMesh();
@@ -141,7 +148,7 @@ public class Game implements PvpSession.Hooks {
         ui = new Ui();
         hud = new Hud();
         textures = new WorldTextures();
-        world = new World(MapData.load(), cube, textures);
+        world = new World(MapData.load(), textures);
         gunModels = new GunModels(textures, pbrShader);
         sounds = new Sounds();
         menus = new Menus(serverDefault);
@@ -162,6 +169,7 @@ public class Game implements PvpSession.Hooks {
         sky.cleanup();
         cube.cleanup();
         sceneShader.cleanup();
+        surfaceShader.cleanup();
         skyShader.cleanup();
         pbrShader.cleanup();
         window.destroy();
@@ -533,12 +541,13 @@ public class Game implements PvpSession.Hooks {
 
         Matrix4f projection = new Matrix4f().perspective((float) Math.toRadians(weapons.fov), (float) w / h, 0.1f, 200f);
         setupScene(projection, player.viewMatrix(), player.position);
-        world.render(sceneShader);
+        world.render(surfaceShader);
         renderDynamic();
 
         // Weapon view-model: fresh depth buffer + identity view, so it draws over the world and stays anchored to the screen.
         if (state != State.MENU) {
             glClear(GL_DEPTH_BUFFER_BIT);
+            sceneShader.use(); // uniform setters act on the bound program, and the world pass left the surface shader bound
             sceneShader.setMat4("view", new Matrix4f());
             sceneShader.setVec3("viewPos", 0f, 0f, 0f);
             pbrShader.use();
@@ -582,6 +591,19 @@ public class Game implements PvpSession.Hooks {
         sceneShader.setFloat("alpha", 1f);
         sceneShader.setVec3("emissive", 0f, 0f, 0f);
         sceneShader.setInt("tex", 0);
+
+        surfaceShader.use();
+        surfaceShader.setMat4("projection", projection);
+        surfaceShader.setMat4("view", view);
+        surfaceShader.setVec3("viewPos", eye.x, eye.y, eye.z);
+        surfaceShader.setVec3("lightDir", LIGHT_DIR.x, LIGHT_DIR.y, LIGHT_DIR.z);
+        surfaceShader.setVec3("lightColor", LIGHT_COLOR.x, LIGHT_COLOR.y, LIGHT_COLOR.z);
+        surfaceShader.setVec3("ambientColor", AMBIENT_COLOR.x, AMBIENT_COLOR.y, AMBIENT_COLOR.z);
+        surfaceShader.setVec3("fogColor", SKY_BOTTOM.x, SKY_BOTTOM.y, SKY_BOTTOM.z);
+        surfaceShader.setFloat("fogNear", 20f);
+        surfaceShader.setFloat("fogFar", 95f);
+        surfaceShader.setFloat("alpha", 1f);
+        surfaceShader.setVec3("emissive", 0f, 0f, 0f);
 
         pbrShader.use();
         pbrShader.setMat4("projection", projection);

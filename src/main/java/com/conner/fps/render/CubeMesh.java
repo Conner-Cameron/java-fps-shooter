@@ -15,6 +15,14 @@ public class CubeMesh implements Drawable {
     private final int indexCount;
 
     public CubeMesh() {
+        this(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * A cube of world size sx x sy x sz whose UVs are scaled per face so one texture repeat covers
+     * {@code tile} world units on every face (the geometry stays unit-sized; the model matrix scales it).
+     */
+    public CubeMesh(float sx, float sy, float sz, float tile) {
         // Each face needs its own 4 vertices (shared corners would average
         // normals across faces, which looks wrong on a cube), so this is
         // 6 faces * 4 verts, each vert = pos(3) + normal(3) + uv(2).
@@ -55,6 +63,14 @@ public class CubeMesh implements Drawable {
                  0.5f, -0.5f,  0.5f,  0f, -1f, 0f,  1f, 1f,
                 -0.5f, -0.5f,  0.5f,  0f, -1f, 0f,  0f, 1f,
         };
+
+        // Face order above is +Z, -Z, -X, +X, +Y, -Y; each face spans (width, height) in world units.
+        float[][] faceSize = {{sx, sy}, {sx, sy}, {sz, sy}, {sz, sy}, {sx, sz}, {sx, sz}};
+        for (int i = 0; i < 24; i++) {
+            float[] s = faceSize[i / 4];
+            vertices[i * 8 + 6] *= s[0] / tile;
+            vertices[i * 8 + 7] *= s[1] / tile;
+        }
 
         int[] indices = new int[36];
         for (int face = 0; face < 6; face++) {
