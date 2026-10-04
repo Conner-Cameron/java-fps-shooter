@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { scene } from "./core.js";
-import { foliageTexture, tiledClone } from "./textures.js";
-import { pbrMaterial } from "./pbr.js";
+import { tiledClone } from "./textures.js";
+import { pbrMaterial, boxUVs, copyUv1, leafMaterial } from "./pbr.js";
 
 
 // ================================================================
@@ -72,11 +72,13 @@ export function addBox(position, size, color, texture, tileSize) {
 // plaster (its `tile` field sets the panel size), and walls/cover/floors as concrete.
 function addPbrBox(b) {
   const [sx, sy, sz] = b.s;
-  const color = parseInt(b.color.slice(1), 16);
+  // The map color is a flat tint on the photo. Pulled 40% toward white so the darkest trim (#2b2b2e)
+  // reads as dark concrete instead of black: the photo should carry the surface, not the tint.
+  const tint = new THREE.Color(parseInt(b.color.slice(1), 16)).lerp(new THREE.Color(0xffffff), 0.4);
   const set = b.climb ? "brushed" : b.tile ? "plaster" : "concrete";
   const t = Math.max(b.tile || 2.5, 0.01);
-  const mat = pbrMaterial(set, color, Math.max(sx / t, 0.5), Math.max(sy / t, 0.5));
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+  const mat = pbrMaterial(set, tint, 1, 1);
+  const mesh = new THREE.Mesh(boxUVs(new THREE.BoxGeometry(sx, sy, sz), sx, sy, sz, t), mat);
   mesh.position.set(b.c[0], b.c[1], b.c[2]);
   scene.add(mesh);
   return mesh;
@@ -122,9 +124,9 @@ addSkyDome();
 
 
 function addGround(box) {
-  const geo = new THREE.BoxGeometry(...box.s);
   // One grass tile every ~6 world units, so the ground doesn't read as a single smeared photo.
-  const mat = pbrMaterial("grass", 0xdcefb4, box.s[0] / 6, box.s[2] / 6);
+  const geo = boxUVs(new THREE.BoxGeometry(...box.s), box.s[0], box.s[1], box.s[2], 6);
+  const mat = pbrMaterial("grass", 0xb4e07a, 1, 1);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(...box.c);
   scene.add(mesh);
@@ -144,7 +146,7 @@ function addMountains() {
     const r = 10 + ((i * 29) % 8);
     const sides = 5 + (i % 3);
     const mat = pbrMaterial("rock", 0x8a94aa, r / 3, h / 3);
-    const mesh = new THREE.Mesh(new THREE.ConeGeometry(r, h, sides), mat);
+    const mesh = new THREE.Mesh(copyUv1(new THREE.ConeGeometry(r, h, sides)), mat);
     mesh.position.set(x, h / 2 - 2, z);
     mesh.rotation.y = i * 0.7;
     scene.add(mesh);
@@ -153,20 +155,64 @@ function addMountains() {
 addMountains();
 
 // ---- Scattered trees and rocks for foreground detail ----
+// Small seeded PRNG (mulberry32) so every tree's canopy comes out the same on every load.
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// A canopy of leaf cards (one photo leaf each) scattered over a shell around the crown. One
+// InstancedMesh per tree, so the whole crown is a single draw call.
+const CANOPY_CARDS = 70;
+const CANOPY_CENTER_Y = 2.5;
+const leafCard = copyUv1(new THREE.PlaneGeometry(1, 1));
+// The leaf photo holds two leaves side by side; each card uses the left one.
+{
+  const uv = leafCard.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * 0.5);
+}
+function addCanopy(group, seed) {
+  const rnd = seeded(seed);
+  const cards = new THREE.InstancedMesh(leafCard, leafMaterial(), CANOPY_CARDS);
+  const dummy = new THREE.Object3D();
+  const center = new THREE.Vector3(0, CANOPY_CENTER_Y, 0);
+  const shade = new THREE.Color();
+  for (let i = 0; i < CANOPY_CARDS; i++) {
+    // Random direction on the sphere, pushed out to the crown's surface.
+    const u = rnd() * 2 - 1;
+    const phi = rnd() * Math.PI * 2;
+    const s = Math.sqrt(1 - u * u);
+    const dir = new THREE.Vector3(s * Math.cos(phi), u * 0.8, s * Math.sin(phi));
+    dummy.position.copy(center).addScaledVector(dir, 0.85 + rnd() * 0.4);
+    dummy.lookAt(center.clone().addScaledVector(dir, 2));
+    dummy.rotateZ(rnd() * Math.PI * 2); // random roll so the leaves don't line up
+    dummy.scale.setScalar(0.7 + rnd() * 0.5);
+    dummy.updateMatrix();
+    cards.setMatrixAt(i, dummy.matrix);
+    // Slight per-leaf variation in green so the crown isn't one flat color.
+    shade.setHSL(0.24 + rnd() * 0.05, 0.45 + rnd() * 0.2, 0.25 + rnd() * 0.15);
+    cards.setColorAt(i, shade);
+  }
+  cards.instanceMatrix.needsUpdate = true;
+  cards.instanceColor.needsUpdate = true;
+  group.add(cards);
+}
+
 function addTree(x, z) {
   const group = new THREE.Group();
   const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.15, 0.22, 1.6, 6),
+    copyUv1(new THREE.CylinderGeometry(0.15, 0.22, 1.6, 6)),
     pbrMaterial("bark", 0xffffff, 1, 2)
   );
   trunk.position.y = 0.8;
   group.add(trunk);
-  const leaves = new THREE.Mesh(
-    new THREE.ConeGeometry(1.1, 2.4, 7),
-    new THREE.MeshLambertMaterial({ color: 0xffffff, map: tiledClone(foliageTexture, 1, 1) })
-  );
-  leaves.position.y = 2.4;
-  group.add(leaves);
+  addCanopy(group, Math.round(x * 100) * 1000 + Math.round(z * 100));
   group.position.set(x, 0, z);
   scene.add(group);
   // Bullet-blocking only -- deliberately not registerSolid(), so trees
@@ -176,7 +222,7 @@ function addTree(x, z) {
 
 function addRock(x, z, scale) {
   const rock = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(0.6 * scale, 0),
+    copyUv1(new THREE.DodecahedronGeometry(0.6 * scale, 0)),
     pbrMaterial("rock", 0x8a8a86, 1, 1)
   );
   rock.position.set(x, 0.3 * scale, z);
@@ -223,8 +269,8 @@ function addRamp(start, end, width, thickness) {
   const endV = new THREE.Vector3(...end);
   const length = Math.max(startV.distanceTo(endV), 0.01);
   const mid = new THREE.Vector3().addVectors(startV, endV).multiplyScalar(0.5);
-  const mat = pbrMaterial("concrete", 0xb4b1a8, Math.max(width / 2, 0.5), Math.max(length / 2, 0.5));
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, thickness, length), mat);
+  const mat = pbrMaterial("concrete", 0xb4b1a8, 1, 1);
+  const mesh = new THREE.Mesh(boxUVs(new THREE.BoxGeometry(width, thickness, length), width, thickness, length, 2.5), mat);
   mesh.position.copy(mid);
   mesh.lookAt(startV);
   scene.add(mesh);

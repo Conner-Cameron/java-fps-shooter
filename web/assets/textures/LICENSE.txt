@@ -1,6 +1,6 @@
 Map surface textures (web/assets/textures/<set>/)
 
-Source: Poly Haven (https://polyhaven.com), 1K JPEG downloads.
+Surfaces: Poly Haven (https://polyhaven.com), 1K JPEG downloads.
 License: CC0 1.0 Universal (public domain dedication). https://polyhaven.com/license
 Attribution is not required; it is recorded here for reference.
 
@@ -12,4 +12,8 @@ Sets:
   rock_face_03         - rocks and distant mountains
   knotted_pine_bark    - tree trunks
 
-Each set contains color.jpg (sRGB), normal.jpg (OpenGL convention, nor_gl) and rough.jpg (roughness).
+Each set contains color.jpg (sRGB), normal.jpg (OpenGL convention) and arm.jpg
+(packed: R = ambient occlusion, G = roughness, B = metalness).
+
+Leaves (web/assets/textures/leaf/): "Leaf001" from ambientCG (https://ambientcg.com),
+CC0 1.0 Universal (https://docs.ambientcg.com/license/). color.jpg and opacity.jpg, 1K.

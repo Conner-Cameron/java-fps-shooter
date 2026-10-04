@@ -17,10 +17,10 @@ export const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / 
 camera.position.set(0, 1.7, 8);
 scene.add(camera); // needed so the view-model gun (parented to the camera below) gets rendered
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+scene.add(new THREE.AmbientLight(0xffffff, 0.9));
 // Sky-to-ground fill: the photo PBR surfaces (see pbr.js) rely on bounce light to read as lit, not as black.
-scene.add(new THREE.HemisphereLight(0xdfe9f5, 0x5a5444, 0.9));
-const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+scene.add(new THREE.HemisphereLight(0xdfe9f5, 0x5a5444, 1.3));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1);
 sun.position.set(10, 20, 10);
 scene.add(sun);
 
