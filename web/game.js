@@ -29,7 +29,7 @@ import {
   clearPracticeTargets
 } from "./js/practice.js";
 import { createPlayerModel, EYE_OFFSET, lerpAngle } from "./js/playerModel.js";
-import { findGroundY, collidesAt, collidesWithRamps, findCeilingY, portalAt, PLAYER_HEIGHT } from "./js/collision.js";
+import { findGroundY, collidesAt, collidesWithRamps, findCeilingY, portalAt, climbableAt, PLAYER_HEIGHT } from "./js/collision.js";
 import { showGun, triggerGunFire, updateGunModel, renderWeaponIcons } from "./js/weaponModels.js";
 import { initMenus, isScreenVisible, setOverlayVisible, showScreen, setPvpError } from "./js/screens.js";
 import { connect, disconnect, isConnected, sendMessage, startKeepAlive } from "./js/net.js";
@@ -289,7 +289,7 @@ window.addEventListener("keydown", (e) => {
   // Weapon choice is locked in on the loadout screen for the rest of
   // this life -- no in-game switching, so the only weapon-related key
   // left once locked in is reload.
-  if (isLocked() && e.code === "KeyR") requestReload();
+  if (isLocked() && !climbing && e.code === "KeyR") requestReload();
 });
 window.addEventListener("keyup", (e) => { keys[e.code] = false; });
 
@@ -298,7 +298,7 @@ window.addEventListener("keyup", (e) => { keys[e.code] = false; });
 // whichever primary was actually picked. Only two slots exist, so any
 // scroll direction just flips between them.
 canvas.addEventListener("wheel", (e) => {
-  if (!isLocked() || isDead) return;
+  if (!isLocked() || isDead || climbing) return;
   e.preventDefault();
   selectWeapon(currentWeapon === KNIFE_INDEX ? primaryWeapon : KNIFE_INDEX);
 }, { passive: false });
@@ -421,6 +421,7 @@ function leaveGame({ keepLoadout = false } = {}) {
   mouseHeld = false;
   rightMouseHeld = false;
   aiming = false;
+  climbing = false;
   adsBlend = 0;
   camera.fov = BASE_FOV;
   camera.updateProjectionMatrix();
@@ -480,12 +481,51 @@ let rightMouseHeld = false;
 let aiming = false;
 let adsBlend = 0; // 0 = hip-fire, 1 = fully aimed -- smoothed each frame in tick()
 
+// ---- climbing ----
+// Pressing Space within reach of a climbable box (and below its top -- see climbableAt()) starts a
+// short, scripted rise onto it instead of a normal jump: WASD/jump/shooting are suppressed and the
+// camera eases from its current spot to standing on top over the box's own duration (shorter boxes
+// climb faster). This is a local prediction -- in PvP the server runs the same check independently
+// and its own "teleport" message (the same one the portal uses) is what actually lands everyone.
+let climbing = false;
+const climbStart = new THREE.Vector3();
+const climbTarget = new THREE.Vector3();
+let climbElapsedMs = 0;
+let climbDurationMs = 0;
+
+function startClimb(box) {
+  climbing = true;
+  climbStart.copy(camera.position);
+  climbTarget.set(box.centerX, box.topY + EYE_HEIGHT, box.centerZ);
+  climbElapsedMs = 0;
+  climbDurationMs = box.durationMs;
+  verticalVelocity = 0;
+  grounded = false;
+  sendMessage({ type: "climb" }); // no-op outside PvP; the server runs its own check off its own position
+}
+
+// Smoothstep ease (slow -> fast -> slow) so the rise reads as a deliberate pull-up, not a linear slide.
+function advanceClimb(dtMs) {
+  climbElapsedMs += dtMs;
+  const t = Math.min(1, climbElapsedMs / climbDurationMs);
+  const eased = t * t * (3 - 2 * t);
+  camera.position.lerpVectors(climbStart, climbTarget, eased);
+  if (t >= 1) {
+    climbing = false;
+    lastSafeX = camera.position.x;
+    lastSafeY = camera.position.y;
+    lastSafeZ = camera.position.z;
+    verticalVelocity = 0;
+    grounded = true;
+  }
+}
+
 // Right-click would otherwise open the browser's context menu, which
 // would both break aiming and leave pointer lock in a weird state.
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 canvas.addEventListener("mousedown", (e) => {
-  if (!isLocked() || isDead) return;
+  if (!isLocked() || isDead || climbing) return;
   if (e.button === 0) {
     mouseHeld = true;
     shoot();
@@ -584,6 +624,7 @@ function resolveTargetHit(hits, obstacleDist) {
 }
 
 function shoot() {
+  if (climbing) return;
   if (WEAPONS[currentWeapon].melee) {
     meleeAttack();
     return;
@@ -674,6 +715,7 @@ function triggerHitFeedback() {
 
 function triggerLocalDeath() {
   isDead = true;
+  climbing = false; // a death cancels a climb in progress -- the respawn teleport is what moves them
   setDeathOverlay(true);
 }
 
@@ -765,105 +807,117 @@ function tick(now) {
   // Automatic weapons (SMG) keep firing every frame the button is held,
   // gated by shoot()'s own cooldown check -- semi-auto weapons ignore
   // this and only fire once per actual click.
-  if (isLocked() && !isDead && mouseHeld && WEAPONS[currentWeapon].automatic) {
+  if (isLocked() && !isDead && !climbing && mouseHeld && WEAPONS[currentWeapon].automatic) {
     shoot();
   }
 
   let moving = false;
   let sprinting = false;
   if (isLocked() && !isDead) {
-    const currentFeetY = camera.position.y - EYE_HEIGHT;
-    if (collidesAt(camera.position.x, currentFeetY, camera.position.z)) {
-      camera.position.set(lastSafeX, lastSafeY, lastSafeZ);
-      verticalVelocity = 0;
-      grounded = false; // let ground detection sort out standing vs falling next frame
-    } else {
-      lastSafeX = camera.position.x;
-      lastSafeY = camera.position.y;
-      lastSafeZ = camera.position.z;
-    }
-
     const forward = getForward();
-    const flatForward = new THREE.Vector3(forward.x, 0, forward.z);
-    if (flatForward.lengthSq() > 0.0001) flatForward.normalize();
-    const right = new THREE.Vector3().crossVectors(flatForward, new THREE.Vector3(0, 1, 0));
 
-    // Aiming and sprinting are mutually exclusive -- aiming always wins
-    // (you can't sprint while looking down sights, standard FPS
-    // convention), matching how requestReload()/selectWeapon() already
-    // cancel aiming rather than letting states stack unpredictably.
-    sprinting = !aiming && (keys["ShiftLeft"] || keys["ShiftRight"]);
-    let speedMult = 1;
-    if (aiming && WEAPONS[currentWeapon].adsMoveMult != null) {
-      speedMult = WEAPONS[currentWeapon].adsMoveMult;
-    } else if (sprinting) {
-      speedMult = WEAPONS[currentWeapon].sprintMult || DEFAULT_SPRINT_MULT;
-    }
-    const velocity = MOVE_SPEED * speedMult * dt;
-    moving = keys["KeyW"] || keys["KeyS"] || keys["KeyD"] || keys["KeyA"];
-
-    let moveX = 0, moveZ = 0;
-    if (keys["KeyW"]) { moveX += flatForward.x * velocity; moveZ += flatForward.z * velocity; }
-    if (keys["KeyS"]) { moveX -= flatForward.x * velocity; moveZ -= flatForward.z * velocity; }
-    if (keys["KeyD"]) { moveX += right.x * velocity; moveZ += right.z * velocity; }
-    if (keys["KeyA"]) { moveX -= right.x * velocity; moveZ -= right.z * velocity; }
-
-    // Resolve X and Z separately (not as one combined step) so walking
-    // diagonally into a wall slides you along it instead of just
-    // stopping dead -- whichever axis isn't blocked still moves.
-    const feetYForXZ = camera.position.y - EYE_HEIGHT;
-    if (moveX !== 0 && !collidesAt(camera.position.x + moveX, feetYForXZ, camera.position.z)) {
-      camera.position.x += moveX;
-    }
-    if (moveZ !== 0 && !collidesAt(camera.position.x, feetYForXZ, camera.position.z + moveZ)) {
-      camera.position.z += moveZ;
-    }
-
-    if (keys["Space"] && grounded) {
-      verticalVelocity = JUMP_SPEED;
-      grounded = false;
-    }
-    verticalVelocity -= GRAVITY * dt;
-
-    const feetY = camera.position.y - EYE_HEIGHT;
-    const proposedFeetY = feetY + verticalVelocity * dt;
-
-    if (verticalVelocity > 0) {
-      const headY = feetY + PLAYER_HEIGHT;
-      const proposedHeadY = proposedFeetY + PLAYER_HEIGHT;
-      let ceilingY = findCeilingY(camera.position.x, camera.position.z, headY, proposedHeadY);
-      // Ramps aren't in solidBoxes (see collidesWithRamps' comment), so
-      // findCeilingY alone can't see them -- without this, jumping into
-      // the underside of a ramp (e.g. under the spiral) went completely
-      // unchecked and could clip the player up into its solid interior.
-      if (ceilingY === null && collidesWithRamps(camera.position.x, proposedFeetY, proposedHeadY, camera.position.z)) {
-        ceilingY = headY; // block the ascent right where it is this frame
-      }
-      if (ceilingY !== null) {
-        camera.position.y = ceilingY - PLAYER_HEIGHT + EYE_HEIGHT;
-        verticalVelocity = 0;
-      } else {
-        camera.position.y = proposedFeetY + EYE_HEIGHT;
-      }
-      grounded = false;
+    if (climbing) {
+      advanceClimb(dt * 1000);
     } else {
-      const fallDistance = Math.max(0, feetY - proposedFeetY);
-      const surfaceY = findGroundY(camera.position.x, camera.position.z, feetY, fallDistance);
-      if (surfaceY !== null) {
-        camera.position.y = surfaceY + EYE_HEIGHT;
+      const currentFeetY = camera.position.y - EYE_HEIGHT;
+      if (collidesAt(camera.position.x, currentFeetY, camera.position.z)) {
+        camera.position.set(lastSafeX, lastSafeY, lastSafeZ);
         verticalVelocity = 0;
-        grounded = true;
+        grounded = false; // let ground detection sort out standing vs falling next frame
       } else {
-        camera.position.y = proposedFeetY + EYE_HEIGHT;
-        grounded = false;
+        lastSafeX = camera.position.x;
+        lastSafeY = camera.position.y;
+        lastSafeZ = camera.position.z;
+      }
+
+      const flatForward = new THREE.Vector3(forward.x, 0, forward.z);
+      if (flatForward.lengthSq() > 0.0001) flatForward.normalize();
+      const right = new THREE.Vector3().crossVectors(flatForward, new THREE.Vector3(0, 1, 0));
+
+      // Aiming and sprinting are mutually exclusive -- aiming always wins
+      // (you can't sprint while looking down sights, standard FPS
+      // convention), matching how requestReload()/selectWeapon() already
+      // cancel aiming rather than letting states stack unpredictably.
+      sprinting = !aiming && (keys["ShiftLeft"] || keys["ShiftRight"]);
+      let speedMult = 1;
+      if (aiming && WEAPONS[currentWeapon].adsMoveMult != null) {
+        speedMult = WEAPONS[currentWeapon].adsMoveMult;
+      } else if (sprinting) {
+        speedMult = WEAPONS[currentWeapon].sprintMult || DEFAULT_SPRINT_MULT;
+      }
+      const velocity = MOVE_SPEED * speedMult * dt;
+      moving = keys["KeyW"] || keys["KeyS"] || keys["KeyD"] || keys["KeyA"];
+
+      let moveX = 0, moveZ = 0;
+      if (keys["KeyW"]) { moveX += flatForward.x * velocity; moveZ += flatForward.z * velocity; }
+      if (keys["KeyS"]) { moveX -= flatForward.x * velocity; moveZ -= flatForward.z * velocity; }
+      if (keys["KeyD"]) { moveX += right.x * velocity; moveZ += right.z * velocity; }
+      if (keys["KeyA"]) { moveX -= right.x * velocity; moveZ -= right.z * velocity; }
+
+      // Resolve X and Z separately (not as one combined step) so walking
+      // diagonally into a wall slides you along it instead of just
+      // stopping dead -- whichever axis isn't blocked still moves.
+      const feetYForXZ = camera.position.y - EYE_HEIGHT;
+      if (moveX !== 0 && !collidesAt(camera.position.x + moveX, feetYForXZ, camera.position.z)) {
+        camera.position.x += moveX;
+      }
+      if (moveZ !== 0 && !collidesAt(camera.position.x, feetYForXZ, camera.position.z + moveZ)) {
+        camera.position.z += moveZ;
+      }
+
+      // Space either climbs (within reach of a climbable box, and not already on top of it) or,
+      // failing that, does a normal jump.
+      const climbable = keys["Space"] ? climbableAt(camera.position.x, camera.position.y, camera.position.z) : null;
+      if (climbable) {
+        startClimb(climbable);
+      } else {
+        if (keys["Space"] && grounded) {
+          verticalVelocity = JUMP_SPEED;
+          grounded = false;
+        }
+        verticalVelocity -= GRAVITY * dt;
+
+        const feetY = camera.position.y - EYE_HEIGHT;
+        const proposedFeetY = feetY + verticalVelocity * dt;
+
+        if (verticalVelocity > 0) {
+          const headY = feetY + PLAYER_HEIGHT;
+          const proposedHeadY = proposedFeetY + PLAYER_HEIGHT;
+          let ceilingY = findCeilingY(camera.position.x, camera.position.z, headY, proposedHeadY);
+          // Ramps aren't in solidBoxes (see collidesWithRamps' comment), so
+          // findCeilingY alone can't see them -- without this, jumping into
+          // the underside of a ramp (e.g. under the spiral) went completely
+          // unchecked and could clip the player up into its solid interior.
+          if (ceilingY === null && collidesWithRamps(camera.position.x, proposedFeetY, proposedHeadY, camera.position.z)) {
+            ceilingY = headY; // block the ascent right where it is this frame
+          }
+          if (ceilingY !== null) {
+            camera.position.y = ceilingY - PLAYER_HEIGHT + EYE_HEIGHT;
+            verticalVelocity = 0;
+          } else {
+            camera.position.y = proposedFeetY + EYE_HEIGHT;
+          }
+          grounded = false;
+        } else {
+          const fallDistance = Math.max(0, feetY - proposedFeetY);
+          const surfaceY = findGroundY(camera.position.x, camera.position.z, feetY, fallDistance);
+          if (surfaceY !== null) {
+            camera.position.y = surfaceY + EYE_HEIGHT;
+            verticalVelocity = 0;
+            grounded = true;
+          } else {
+            camera.position.y = proposedFeetY + EYE_HEIGHT;
+            grounded = false;
+          }
+        }
+
+        // No input needed -- touching a portal teleports on contact. In PvP this is only a
+        // prediction: the server makes the same check against its own position and is what
+        // actually moves the player for everyone else (see the "teleport" server message below).
+        const enteredPortal = portalAt(camera.position.x, camera.position.y, camera.position.z);
+        if (enteredPortal) teleportLocalPlayer(enteredPortal.to);
       }
     }
-
-    // No input needed -- touching a portal teleports on contact. In PvP this is only a
-    // prediction: the server makes the same check against its own position and is what
-    // actually moves the player for everyone else (see the "teleport" server message below).
-    const enteredPortal = portalAt(camera.position.x, camera.position.y, camera.position.z);
-    if (enteredPortal) teleportLocalPlayer(enteredPortal.to);
 
     camera.lookAt(
       camera.position.x + forward.x,
@@ -913,7 +967,7 @@ function tick(now) {
   // vaguely-proportional decoration.
   setCrosshairGap(spreadDegreesToPixels(activeWeapon.hipSpread || 0));
 
-  updateGunModel(currentWeapon, dt, moving, adsBlend, sprinting);
+  updateGunModel(currentWeapon, dt, moving, adsBlend, sprinting, climbing);
   sendStateIfDue(now);
 
   for (const rp of remotePlayers.values()) {

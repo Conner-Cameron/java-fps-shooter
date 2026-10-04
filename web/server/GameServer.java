@@ -132,10 +132,35 @@ public class GameServer {
         }
     }
 
+    /**
+     * A climbable box: pressing space within {@code CLIMB_RANGE} of it (and below its top) starts a
+     * timed climb (see the "climb" message in handleMessage) that ends standing on {@code (centerX,
+     * topY, centerZ)}. Built from any {@code boxes} entry with a "climb" field (its duration, ms) --
+     * same box data as SOLIDS, just additionally climbable.
+     */
+    static final class Climbable {
+        final double minX, maxX, minZ, maxZ, topY, centerX, centerZ;
+        final long durationMs;
+
+        Climbable(double cx, double cy, double cz, double sx, double sy, double sz, long durationMs) {
+            this.minX = cx - sx / 2;
+            this.maxX = cx + sx / 2;
+            this.minZ = cz - sz / 2;
+            this.maxZ = cz + sz / 2;
+            this.topY = cy + sy / 2;
+            this.centerX = cx;
+            this.centerZ = cz;
+            this.durationMs = durationMs;
+        }
+    }
+
     private static final double PORTAL_VERT_TOLERANCE = 1.2;
+    private static final double CLIMB_RANGE = 1.3;         // horizontal reach, from the box's nearest face
+    private static final double CLIMB_LAND_MARGIN = 0.3;   // once feet are this close to the top, it's "climbed" already
     private static final List<Solid> SOLIDS = new ArrayList<>();
     private static final List<Ramp> RAMPS = new ArrayList<>();
     private static final List<Portal> PORTALS = new ArrayList<>();
+    private static final List<Climbable> CLIMBABLES = new ArrayList<>();
 
     @SuppressWarnings("unchecked")
     private static void loadMap(File file) throws IOException {
@@ -147,6 +172,9 @@ public class GameServer {
             double[] s = toDoubleArray((List<Object>) b.get("s"));
             boolean bullets = !Boolean.FALSE.equals(b.get("bullets"));
             SOLIDS.add(new Solid(c[0], c[1], c[2], s[0], s[1], s[2], bullets, true));
+            if (b.get("climb") instanceof Number) {
+                CLIMBABLES.add(new Climbable(c[0], c[1], c[2], s[0], s[1], s[2], ((Number) b.get("climb")).longValue()));
+            }
         }
         // Bounding boxes around the client's tree/rock meshes (cone + trunk, and a dodecahedron).
         for (Object o : (List<Object>) map.get("trees")) {
@@ -170,7 +198,8 @@ public class GameServer {
                         ((Number) p.get("r")).doubleValue(), toDoubleArray((List<Object>) p.get("to"))));
             }
         }
-        System.out.println("Loaded map: " + SOLIDS.size() + " solids, " + RAMPS.size() + " ramps, " + PORTALS.size() + " portals");
+        System.out.println("Loaded map: " + SOLIDS.size() + " solids, " + RAMPS.size() + " ramps, " + PORTALS.size()
+                + " portals, " + CLIMBABLES.size() + " climbables");
     }
 
     /** The portal whose trigger volume {@code pos} (eye-height) is currently inside, or null. */
@@ -178,6 +207,19 @@ public class GameServer {
         for (Portal p : PORTALS) {
             double dx = pos[0] - p.c[0], dz = pos[2] - p.c[2];
             if (dx * dx + dz * dz <= p.r * p.r && Math.abs(pos[1] - p.c[1]) <= PORTAL_VERT_TOLERANCE) return p;
+        }
+        return null;
+    }
+
+    /** The climbable box {@code pos} (eye-height) is within reach of and still below the top of, or null. */
+    private static Climbable climbableAt(double[] pos) {
+        double feetY = pos[1] - EYE_HEIGHT;
+        for (Climbable c : CLIMBABLES) {
+            if (feetY >= c.topY - CLIMB_LAND_MARGIN) continue; // already (near enough) on top
+            double nearestX = Math.max(c.minX, Math.min(pos[0], c.maxX));
+            double nearestZ = Math.max(c.minZ, Math.min(pos[2], c.maxZ));
+            double dx = pos[0] - nearestX, dz = pos[2] - nearestZ;
+            if (dx * dx + dz * dz <= CLIMB_RANGE * CLIMB_RANGE) return c;
         }
         return null;
     }
@@ -849,6 +891,7 @@ public class GameServer {
 
         volatile Room room;          // null until the player has joined one
         volatile double rttMs = 0;   // round trip to this player, measured by the server's own pings (see pingEveryone)
+        volatile boolean climbing = false; // mid-climb (see the "climb" message); blocks starting another
 
         // Recent positions with server-receive timestamps, so a shot can be checked against where the
         // shooter SAW this player (lag compensation, see handleShoot) instead of where they are now.
@@ -1049,6 +1092,10 @@ public class GameServer {
                 }
                 break;
             }
+            case "climb": {
+                startClimb(player);
+                break;
+            }
             default:
                 break;
         }
@@ -1071,10 +1118,37 @@ public class GameServer {
         }, duration, TimeUnit.MILLISECONDS);
     }
 
+    /**
+     * Starts a timed climb if {@code p} is eligible (alive, in a room, not already climbing, and
+     * within reach of a climbable box -- see {@link #climbableAt}). The client already started its
+     * own local (animated) prediction the instant it sent this; the server doesn't echo an
+     * acknowledgement, just schedules the authoritative landing and reuses the existing "teleport"
+     * message for it (same one the portal uses) once the climb's duration is up.
+     */
+    private static void startClimb(Player p) {
+        Room room = p.room;
+        if (room == null || !p.alive || p.climbing) return;
+        Climbable c = climbableAt(p.pos);
+        if (c == null) return;
+        p.climbing = true;
+        p.awaitingSync = true; // ignore state reports until the climb lands and resyncs, like a respawn
+        p.syncPendingSinceMs = System.currentTimeMillis();
+        double[] target = {c.centerX, c.topY + EYE_HEIGHT, c.centerZ};
+        scheduler.schedule(() -> {
+            // Left the room, or died (and so already respawned elsewhere) mid-climb: don't land them.
+            if (p.room != room || !p.climbing) return;
+            p.climbing = false;
+            p.setPos(target, true);
+            p.awaitingSync = true;
+            p.syncPendingSinceMs = System.currentTimeMillis();
+            room.broadcast(Json.obj("type", "teleport", "id", p.id, "pos", p.pos));
+        }, c.durationMs, TimeUnit.MILLISECONDS);
+    }
+
     @SuppressWarnings("unchecked")
     private static void handleShoot(Player shooter, Map<String, Object> obj) {
         Room room = shooter.room;
-        if (room == null || !shooter.alive || shooter.reloading) return;
+        if (room == null || !shooter.alive || shooter.reloading || shooter.climbing) return;
 
         int weaponIdx = clampWeapon(shooter.weapon);
         boolean melee = WEAPON_MELEE[weaponIdx];
@@ -1154,6 +1228,7 @@ public class GameServer {
         }
 
         victim.alive = false;
+        victim.climbing = false; // a death cancels a climb in progress -- the respawn below is what actually moves them
         shooter.kills++;
         stats.addKill(shooter.name, victim.name);
         room.broadcast(Json.obj("type", "kill", "shooterId", shooter.id, "victimId", victim.id, "shooterKills", shooter.kills));

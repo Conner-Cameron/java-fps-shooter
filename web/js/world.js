@@ -13,6 +13,7 @@ export const collidables = []; // meshes the ground-detection raycast can land t
 export const solidBoxes = []; // precomputed Box3s for horizontal + ceiling collision against static structure
 export const bulletBlockers = []; // meshes the shoot() raycast checks first -- anything solid stops a bullet, hit or miss
 export const portals = []; // {x, y, z, r, to}, eye-height like spawn/respawn positions -- see collision.js's portalAt()
+export const climbables = []; // {minX, maxX, minZ, maxZ, topY, centerX, centerZ, durationMs} -- see collision.js's climbableAt()
 export const portalBeams = []; // the glowing columns, animated (a slow spin) each frame in game.js's tick()
 
 // Registers a static mesh as real solid structure: standable from above
@@ -248,6 +249,14 @@ export function buildWorld(MAP) {
       registerSolid(glass, b.bullets !== false);
     } else {
       registerSolid(addBox(b.c, b.s, parseInt(b.color.slice(1), 16), metalTexture, b.tile), b.bullets !== false);
+    }
+    if (b.climb) {
+      climbables.push({
+        minX: b.c[0] - b.s[0] / 2, maxX: b.c[0] + b.s[0] / 2,
+        minZ: b.c[2] - b.s[2] / 2, maxZ: b.c[2] + b.s[2] / 2,
+        topY: b.c[1] + b.s[1] / 2, centerX: b.c[0], centerZ: b.c[2],
+        durationMs: b.climb
+      });
     }
   });
   MAP.trees.forEach(([x, z]) => addTree(x, z));

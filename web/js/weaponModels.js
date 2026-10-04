@@ -227,7 +227,7 @@ export function triggerGunFire() {
 
 let gunSprintFactor = 0;
 
-export function updateGunModel(weaponIdx, dt, moving, adsBlendAmount, sprinting) {
+export function updateGunModel(weaponIdx, dt, moving, adsBlendAmount, sprinting, climbing = false) {
   gunIdleTime += dt;
   gunMovingFactor += ((moving ? 1 : 0) - gunMovingFactor) * Math.min(1, dt * 8);
   gunSprintFactor += ((sprinting && moving ? 1 : 0) - gunSprintFactor) * Math.min(1, dt * 8);
@@ -267,9 +267,9 @@ export function updateGunModel(weaponIdx, dt, moving, adsBlendAmount, sprinting)
   activeGun.rotation.z = sprintTiltZ;
   activeGun.userData.flash.visible = gunRecoilTimer > GUN_RECOIL_DURATION - GUN_MUZZLE_FLASH_DURATION;
 
-  // A real scope shows the view through the tube, not the gun's body --
-  // hide the model once mostly zoomed into the sniper's scope.
-  activeGun.visible = !(WEAPONS[weaponIdx].scope && adsBlendAmount > 0.5);
+  // A real scope shows the view through the tube, not the gun's body -- hide the model once
+  // mostly zoomed into the sniper's scope, or while both hands are busy climbing.
+  activeGun.visible = !climbing && !(WEAPONS[weaponIdx].scope && adsBlendAmount > 0.5);
 }
 
 // Shows only the given weapon's first-person model.

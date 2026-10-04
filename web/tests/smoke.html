@@ -162,6 +162,25 @@
   await movementBurst("the knife");
   wheel(); await wait(150);
 
+  // ---------------- climbing a short tower ----------------
+  // The sprint+jump bursts above left the player roughly at (0, -13), stopped at the long cover
+  // wall. Short tower A sits at x[-7,-5], z[-6,-4] -- south of there: west to its edge, then south
+  // to its face, then Space climbs it (no normal jump could reach a box this tall).
+  check("climb: starts with a full magazine (24)", text("#ammoCount") === "24", text("#ammoCount"));
+  key("keydown", "KeyA"); await wait(900); key("keyup", "KeyA");
+  key("keydown", "KeyS"); await wait(1500); key("keyup", "KeyS");
+  await wait(100);
+  key("keydown", "Space"); await wait(60); key("keyup", "Space");
+  await wait(100);
+  mouse("mousedown", 0); mouse("mouseup", 0);
+  await wait(150);
+  check("climb: shooting is blocked mid-climb (still 24)", text("#ammoCount") === "24", text("#ammoCount"));
+  await wait(500); // short tower's climb is 350ms -- this is well past it
+  mouse("mousedown", 0); mouse("mouseup", 0);
+  await wait(150);
+  check("climb: shooting resumes once the climb finishes (23)", text("#ammoCount") === "23", text("#ammoCount"));
+  check("climb: no exceptions climbing the tower", errors.length === 0, errors.join(" | "));
+
   // ---------------- PvP flow (real server) ----------------
   const pvpFrame = document.createElement("iframe");
   pvpFrame.src = "/";

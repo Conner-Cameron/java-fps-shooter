@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { collidables, solidBoxes, rampColliders, portals } from "./world.js";
+import { collidables, solidBoxes, rampColliders, portals, climbables } from "./world.js";
 
 const GROUND_PROBE_UP = 0.4;   // cast the ray from this far above current feet
 const GROUND_SNAP_MARGIN = 0.1; // a little slack beyond this frame's fall distance
@@ -96,6 +96,25 @@ export function portalAt(eyeX, eyeY, eyeZ) {
   for (const p of portals) {
     const dx = eyeX - p.x, dz = eyeZ - p.z;
     if (dx * dx + dz * dz <= p.r * p.r && Math.abs(eyeY - p.y) <= PORTAL_VERT_TOLERANCE) return p;
+  }
+  return null;
+}
+
+// How close (from the box's nearest face, not its center) counts as "in reach" to climb it.
+const CLIMB_RANGE = 1.3;
+const EYE_HEIGHT_FOR_CLIMB = 1.7; // matches game.js's EYE_HEIGHT
+// Once feet are this close to the top, treat it as already climbed (stops an immediate re-trigger).
+const CLIMB_LAND_MARGIN = 0.3;
+
+/** The climbable box `eyeY` (converted to feet) is within reach of and still below the top of, or null. */
+export function climbableAt(eyeX, eyeY, eyeZ) {
+  const feetY = eyeY - EYE_HEIGHT_FOR_CLIMB;
+  for (const c of climbables) {
+    if (feetY >= c.topY - CLIMB_LAND_MARGIN) continue;
+    const nearestX = Math.max(c.minX, Math.min(eyeX, c.maxX));
+    const nearestZ = Math.max(c.minZ, Math.min(eyeZ, c.maxZ));
+    const dx = eyeX - nearestX, dz = eyeZ - nearestZ;
+    if (dx * dx + dz * dz <= CLIMB_RANGE * CLIMB_RANGE) return c;
   }
   return null;
 }

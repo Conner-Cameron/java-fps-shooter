@@ -23,6 +23,7 @@ public final class MapData {
         public final boolean ground;
         public final boolean glass;
         public final boolean blocksBullets;
+        public final long climbMs; // 0 = not climbable; otherwise how long pressing Space beside it takes
 
         Box(Map<String, Object> o) {
             center = Json.floats(o.get("c"));
@@ -34,6 +35,7 @@ public final class MapData {
             ground = "ground".equals(o.get("kind"));
             glass = Boolean.TRUE.equals(o.get("glass"));
             blocksBullets = !Boolean.FALSE.equals(o.get("bullets"));
+            climbMs = (long) Json.num(o.get("climb"), 0);
         }
     }
 

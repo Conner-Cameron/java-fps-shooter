@@ -30,6 +30,66 @@ public final class Player {
     // snap back to the last spot that wasn't -- "prevent entry" collision can't recover on its own.
     private float lastSafeX = 0f, lastSafeY = World.EYE_HEIGHT, lastSafeZ = 8f;
 
+    // ---- climbing ----
+    // Pressing Space within reach of a climbable box (and below its top -- see World.climbableAt)
+    // starts a short, scripted rise onto it instead of a normal jump: WASD/jump/shooting are
+    // suppressed (see Game's isClimbing() checks) and position eases from where it started to
+    // standing on top over the box's own duration. A local prediction -- in PvP the server runs the
+    // same check independently and its own "teleport" message (the same one the portal uses) is
+    // what actually lands everyone.
+    private boolean climbing = false;
+    private boolean climbStartedThisFrame = false;
+    private final Vector3f climbStart = new Vector3f();
+    private final Vector3f climbTarget = new Vector3f();
+    private float climbElapsedMs = 0f;
+    private long climbDurationMs = 0;
+
+    public boolean isClimbing() {
+        return climbing;
+    }
+
+    /** True exactly once, the frame a climb starts -- Game reads this to send the "climb" network message. */
+    public boolean consumeClimbStarted() {
+        boolean v = climbStartedThisFrame;
+        climbStartedThisFrame = false;
+        return v;
+    }
+
+    private void startClimb(World.Climbable box) {
+        climbing = true;
+        climbStartedThisFrame = true;
+        climbStart.set(position);
+        climbTarget.set(box.centerX, box.topY + World.EYE_HEIGHT, box.centerZ);
+        climbElapsedMs = 0f;
+        climbDurationMs = box.durationMs;
+        verticalVelocity = 0f;
+        grounded = false;
+    }
+
+    /** A death (or anything else that force-places the player) cancels a climb in progress. */
+    public void cancelClimb() {
+        climbing = false;
+    }
+
+    // Smoothstep ease (slow -> fast -> slow) so the rise reads as a deliberate pull-up, not a linear slide.
+    private void advanceClimb(float dtMs) {
+        climbElapsedMs += dtMs;
+        float t = Math.min(1f, climbElapsedMs / climbDurationMs);
+        float eased = t * t * (3f - 2f * t);
+        position.set(
+                climbStart.x + (climbTarget.x - climbStart.x) * eased,
+                climbStart.y + (climbTarget.y - climbStart.y) * eased,
+                climbStart.z + (climbTarget.z - climbStart.z) * eased);
+        if (t >= 1f) {
+            climbing = false;
+            lastSafeX = position.x;
+            lastSafeY = position.y;
+            lastSafeZ = position.z;
+            verticalVelocity = 0f;
+            grounded = true;
+        }
+    }
+
     public Vector3f forward() {
         return new Vector3f(
                 (float) (Math.cos(yaw) * Math.cos(pitch)),
@@ -53,6 +113,7 @@ public final class Player {
         pitch = 0f;
         moving = false;
         sprinting = false;
+        climbing = false;
         teleport(0, World.EYE_HEIGHT, 8);
     }
 
@@ -69,6 +130,7 @@ public final class Player {
         lastSafeZ = z;
         verticalVelocity = 0f;
         grounded = true;
+        climbing = false; // any force-placement (death, portal, the climb's own landing) supersedes a climb in progress
     }
 
     /**
@@ -77,6 +139,13 @@ public final class Player {
      */
     public void update(World world, float dt, boolean fwd, boolean back, boolean left, boolean right,
                        boolean jump, boolean shift, boolean aiming, float adsMoveMult, float sprintMult) {
+        if (climbing) {
+            advanceClimb(dt * 1000f);
+            moving = false;
+            sprinting = false;
+            return;
+        }
+
         float currentFeetY = position.y - World.EYE_HEIGHT;
         if (world.collidesAt(position.x, currentFeetY, position.z)) {
             position.set(lastSafeX, lastSafeY, lastSafeZ);
@@ -112,6 +181,13 @@ public final class Player {
         if (moveX != 0 && !world.collidesAt(position.x + moveX, feetYForXZ, position.z)) position.x += moveX;
         if (moveZ != 0 && !world.collidesAt(position.x, feetYForXZ, position.z + moveZ)) position.z += moveZ;
 
+        // Space either climbs (within reach of a climbable box, and not already on top of it) or,
+        // failing that, does a normal jump.
+        World.Climbable climbable = jump ? world.climbableAt(position) : null;
+        if (climbable != null) {
+            startClimb(climbable);
+            return;
+        }
         if (jump && grounded) {
             verticalVelocity = JUMP_SPEED;
             grounded = false;

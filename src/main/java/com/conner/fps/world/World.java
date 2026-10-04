@@ -33,6 +33,25 @@ public final class World {
     private static final float GROUND_PROBE_UP = 0.4f;
     private static final float GROUND_SNAP_MARGIN = 0.1f;
     private static final float PORTAL_VERT_TOLERANCE = 1.2f;
+    private static final float CLIMB_RANGE = 1.3f;        // horizontal reach, from the box's nearest face
+    private static final float CLIMB_LAND_MARGIN = 0.3f;  // once feet are this close to the top, it's "climbed" already
+
+    /** A climbable box: pressing Space within {@link #CLIMB_RANGE} of it (see {@link #climbableAt}) starts a timed climb onto it. */
+    public static final class Climbable {
+        public final float minX, maxX, minZ, maxZ, topY, centerX, centerZ;
+        public final long durationMs;
+
+        Climbable(float[] c, float[] s, long durationMs) {
+            minX = c[0] - s[0] / 2;
+            maxX = c[0] + s[0] / 2;
+            minZ = c[2] - s[2] / 2;
+            maxZ = c[2] + s[2] / 2;
+            topY = c[1] + s[1] / 2;
+            centerX = c[0];
+            centerZ = c[2];
+            this.durationMs = durationMs;
+        }
+    }
 
     /** An axis-aligned solid: walkable-on / blocks movement, and (optionally) stops bullets. */
     private static final class Solid {
@@ -72,6 +91,7 @@ public final class World {
     private final List<Solid> bulletOnly = new ArrayList<>(); // trees and rocks: stop gunfire but aren't walked into
     private final List<Ramp> ramps = new ArrayList<>();
     private final List<MapData.Portal> portals = new ArrayList<>();
+    private final List<Climbable> climbables = new ArrayList<>();
     private final List<Prop> opaque = new ArrayList<>();
     private final List<Prop> translucent = new ArrayList<>();
     private final List<ShapeMesh> ownedMeshes = new ArrayList<>();
@@ -95,6 +115,7 @@ public final class World {
                 float t = Math.max(b.tile, 0.01f);
                 opaque.add(new Prop(cube, m, tex.metal, b.color, Math.max(b.size[0] / t, 0.5f), Math.max(b.size[1] / t, 0.5f), 1f));
             }
+            if (b.climbMs > 0) climbables.add(new Climbable(b.center, b.size, b.climbMs));
         }
 
         for (MapData.Ramp r : map.ramps) {
@@ -256,6 +277,19 @@ public final class World {
         for (MapData.Portal p : portals) {
             float dx = eyePos.x - p.center[0], dz = eyePos.z - p.center[2];
             if (dx * dx + dz * dz <= p.radius * p.radius && Math.abs(eyePos.y - p.center[1]) <= PORTAL_VERT_TOLERANCE) return p;
+        }
+        return null;
+    }
+
+    /** The climbable box {@code eyePos} is within reach of and still below the top of, or null. */
+    public Climbable climbableAt(Vector3f eyePos) {
+        float feetY = eyePos.y - EYE_HEIGHT;
+        for (Climbable c : climbables) {
+            if (feetY >= c.topY - CLIMB_LAND_MARGIN) continue;
+            float nearestX = Math.max(c.minX, Math.min(eyePos.x, c.maxX));
+            float nearestZ = Math.max(c.minZ, Math.min(eyePos.z, c.maxZ));
+            float dx = eyePos.x - nearestX, dz = eyePos.z - nearestZ;
+            if (dx * dx + dz * dz <= CLIMB_RANGE * CLIMB_RANGE) return c;
         }
         return null;
     }

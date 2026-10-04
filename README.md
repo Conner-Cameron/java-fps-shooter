@@ -33,6 +33,13 @@ photos and glTF/PBR weapon models), and the protocol.
 - A portal outside the building, opposite the spiral ramp, drops you on its
   roof -- just walk into the glowing pad, no key to press; in PvP the server
   has the final say on when it fires, same as every other move
+- Every cover object in the open field (the four towers and the long center
+  wall) is climbable, consistently by height: all are too tall to just jump
+  onto, and every one at the shorter height (2.0) climbs in the same quick
+  time, every one at the taller height (3.2) in the same slightly longer
+  time. Stand next to one and press Space -- a short scripted rise lands you
+  on top; both hands are busy for it, so shooting/reloading/switching wait
+  until it's done
 - Weapons with per-weapon damage, magazines, reload, fire rate (SMG is automatic),
   hip-fire spread that the crosshair shows, aim-down-sights per weapon, and a real
   sniper scope; a 100-damage knife within arm's reach
@@ -51,7 +58,7 @@ photos and glTF/PBR weapon models), and the protocol.
 |----------------|-------------------------------------------|
 | `W A S D`      | Move                                      |
 | Mouse          | Look                                      |
-| `Space`        | Jump                                      |
+| `Space`        | Jump (climbs a nearby tower instead, if one's in reach) |
 | `Left Shift`   | Sprint                                    |
 | Left click     | Shoot (hold for the SMG) / knife swing    |
 | Right click    | Aim down sights (not with the knife)      |

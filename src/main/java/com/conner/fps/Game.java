@@ -224,6 +224,8 @@ public class Game implements PvpSession.Hooks {
                         weapons.aiming, weapons.spec().adsMoveMult, Weapons.sprintMult(weapons.current));
                 moving = player.moving;
                 sprinting = player.sprinting;
+                // No-op outside PvP; the server runs its own climbableAt() check off its own position.
+                if (player.consumeClimbStarted()) sendMessage(Json.obj("type", "climb"));
             }
             weapons.updateAds(dt, !dead);
             sendStateIfDue();
@@ -236,6 +238,12 @@ public class Game implements PvpSession.Hooks {
 
     private void handleCombatInput(boolean dead) {
         if (dead) {
+            mouseHeld = false;
+            weapons.aiming = false;
+            return;
+        }
+        if (player.isClimbing()) {
+            // Both hands are busy -- no shooting, reloading, weapon switching or aiming mid-climb.
             mouseHeld = false;
             weapons.aiming = false;
             return;
@@ -386,6 +394,7 @@ public class Game implements PvpSession.Hooks {
     @Override
     public void died() {
         weapons.aiming = false;
+        player.cancelClimb();
     }
 
     @Override
@@ -536,7 +545,7 @@ public class Game implements PvpSession.Hooks {
             pbrShader.setMat4("view", new Matrix4f());
             pbrShader.setVec3("viewPos", 0f, 0f, 0f);
             sceneShader.use();
-            boolean hideGun = weapons.spec().scope && weapons.adsBlend > 0.5f;
+            boolean hideGun = (weapons.spec().scope && weapons.adsBlend > 0.5f) || player.isClimbing();
             gunModels.renderViewModel(sceneShader, cube, weapons.current, weapons.adsBlend, hideGun);
         }
 
