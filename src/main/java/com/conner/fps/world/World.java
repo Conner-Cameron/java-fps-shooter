@@ -219,6 +219,49 @@ public final class World {
     }
 
     /** Does a standing player at (x, feetY, z) overlap any wall/floor/ramp? */
+    /**
+     * If the standing body at (x, feetY, z) overlaps a solid box (say, it dropped past the side of a
+     * block it walked off), returns the nearest horizontally clear spot -- the smallest push out of
+     * that box -- as {x, z}; or null if nothing is overlapped. Lets the player slide free of a block's
+     * side instead of being snapped back onto it. Same overlap test as {@link #collidesAt}.
+     */
+    public float[] pushOutOfSolids(float x, float feetY, float z) {
+        float px = x, pz = z;
+        boolean moved = false;
+        for (int pass = 0; pass < 3; pass++) {
+            Solid hit = overlappingSolid(px, feetY, pz);
+            if (hit == null) break;
+            moved = true;
+            float r = PLAYER_RADIUS + 0.002f;
+            float[][] options = {
+                {hit.min[0] - r, pz}, {hit.max[0] + r, pz},
+                {px, hit.min[2] - r}, {px, hit.max[2] + r}
+            };
+            float[] best = options[0];
+            float bestD = Float.MAX_VALUE;
+            for (float[] o : options) {
+                float d = (float) Math.hypot(o[0] - px, o[1] - pz);
+                if (d < bestD) { bestD = d; best = o; }
+            }
+            px = best[0];
+            pz = best[1];
+        }
+        return moved ? new float[]{px, pz} : null;
+    }
+
+    private Solid overlappingSolid(float x, float feetY, float z) {
+        float headY = feetY + PLAYER_HEIGHT;
+        float minX = x - PLAYER_RADIUS, maxX = x + PLAYER_RADIUS;
+        float minY = feetY + STAND_CLEARANCE, minZ = z - PLAYER_RADIUS, maxZ = z + PLAYER_RADIUS;
+        for (Solid s : solids) {
+            if (maxX < s.min[0] || minX > s.max[0]) continue;
+            if (headY < s.min[1] || minY > s.max[1]) continue;
+            if (maxZ < s.min[2] || minZ > s.max[2]) continue;
+            return s;
+        }
+        return null;
+    }
+
     public boolean collidesAt(float x, float feetY, float z) {
         float headY = feetY + PLAYER_HEIGHT;
         float minX = x - PLAYER_RADIUS, maxX = x + PLAYER_RADIUS;

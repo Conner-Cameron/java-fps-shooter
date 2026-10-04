@@ -29,7 +29,7 @@ import {
   clearPracticeTargets
 } from "./js/practice.js";
 import { createPlayerModel, EYE_OFFSET, lerpAngle } from "./js/playerModel.js";
-import { findGroundY, collidesAt, collidesWithRamps, findCeilingY, portalAt, climbableAt, PLAYER_HEIGHT } from "./js/collision.js";
+import { findGroundY, collidesAt, collidesWithRamps, findCeilingY, portalAt, climbableAt, pushOutOfSolids, PLAYER_HEIGHT } from "./js/collision.js";
 import { showGun, triggerGunFire, updateGunModel, renderWeaponIcons } from "./js/weaponModels.js";
 import { initMenus, isScreenVisible, setOverlayVisible, showScreen, setPvpError } from "./js/screens.js";
 import { connect, disconnect, isConnected, sendMessage, startKeepAlive } from "./js/net.js";
@@ -823,9 +823,17 @@ function tick(now) {
     } else {
       const currentFeetY = camera.position.y - EYE_HEIGHT;
       if (collidesAt(camera.position.x, currentFeetY, camera.position.z)) {
-        camera.position.set(lastSafeX, lastSafeY, lastSafeZ);
-        verticalVelocity = 0;
-        grounded = false; // let ground detection sort out standing vs falling next frame
+        // Usually this is just the body having dropped past the side of the block it walked off:
+        // slide out to the nearest clear spot rather than snapping back onto the top.
+        const out = pushOutOfSolids(camera.position.x, currentFeetY, camera.position.z);
+        if (out && !collidesAt(out.x, currentFeetY, out.z)) {
+          camera.position.x = out.x;
+          camera.position.z = out.z;
+        } else {
+          camera.position.set(lastSafeX, lastSafeY, lastSafeZ);
+          verticalVelocity = 0;
+          grounded = false; // let ground detection sort out standing vs falling next frame
+        }
       } else {
         lastSafeX = camera.position.x;
         lastSafeY = camera.position.y;

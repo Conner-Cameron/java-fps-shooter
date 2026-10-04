@@ -118,3 +118,38 @@ export function climbableAt(eyeX, eyeY, eyeZ) {
   }
   return null;
 }
+
+// If the standing body at (x, feetY, z) overlaps a solid box (say, it fell past the side of a block
+// it had just walked off), returns the nearest horizontally clear spot -- the smallest push out of
+// that box -- or null if nothing is overlapped. Lets the player slide free of a block's side
+// instead of being snapped back onto it.
+function findOverlappingBox(x, feetY, z) {
+  playerBox.min.set(x - PLAYER_RADIUS, feetY + STAND_CLEARANCE, z - PLAYER_RADIUS);
+  playerBox.max.set(x + PLAYER_RADIUS, feetY + PLAYER_HEIGHT, z + PLAYER_RADIUS);
+  for (let i = 0; i < solidBoxes.length; i++) {
+    if (playerBox.intersectsBox(solidBoxes[i])) return solidBoxes[i];
+  }
+  return null;
+}
+
+export function pushOutOfSolids(x, feetY, z) {
+  let px = x, pz = z, moved = false;
+  for (let pass = 0; pass < 3; pass++) {
+    const b = findOverlappingBox(px, feetY, pz);
+    if (!b) break;
+    moved = true;
+    const r = PLAYER_RADIUS + 0.002;
+    const options = [
+      { x: b.min.x - r, z: pz }, { x: b.max.x + r, z: pz },
+      { x: px, z: b.min.z - r }, { x: px, z: b.max.z + r }
+    ];
+    let best = options[0], bestD = Infinity;
+    for (const o of options) {
+      const d = Math.hypot(o.x - px, o.z - pz);
+      if (d < bestD) { bestD = d; best = o; }
+    }
+    px = best.x;
+    pz = best.z;
+  }
+  return moved ? { x: px, z: pz } : null;
+}

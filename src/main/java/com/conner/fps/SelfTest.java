@@ -206,7 +206,42 @@ public final class SelfTest implements Game.ScriptHook {
     private void build() {
         outDir.mkdirs();
         if (scenario.equals("pvp")) buildPvp();
+        else if (scenario.equals("climb")) buildClimb();
         else buildTraining();
+    }
+
+    /**
+     * Reproduces the reported "stuck on top of a climbed block" bug: climb the short tower, then
+     * hold forward (and sprint) and check the player actually leaves the top and reaches the ground.
+     */
+    private void buildClimb() {
+        Game g0 = null;
+        menuFlowToLoadout(g0, "training");
+        pickCard(g0, 1, Menus.Screen.TRAINING_SETUP);
+        wait(2);
+        click(g0, 640, 391);
+        wait(3);
+        verify("training starts for the climb check", () -> gameState().equals("PLAYING"), null);
+        wait(20);
+        // West to the short tower's edge, north to its face (the same approach the smoke test uses).
+        act(() -> key(GLFW_KEY_A, true)); sec(1.9); act(() -> key(GLFW_KEY_A, false));
+        act(() -> key(GLFW_KEY_W, true)); sec(2.25); act(() -> key(GLFW_KEY_W, false));
+        sec(0.1);
+        act(() -> key(GLFW_KEY_SPACE, true)); sec(0.12); act(() -> key(GLFW_KEY_SPACE, false));
+        until("the climb lands on top of the short tower", () -> game().player().position.y > 3.5f, 4.0);
+        sec(0.4);
+        verify("standing on the tower top", () -> Math.abs(game().player().position.y - 3.7f) < 0.05f, "pos " + game().player().position);
+        // Hold forward while on top; the player must leave the top and drop back to the ground.
+        act(() -> key(GLFW_KEY_W, true));
+        until("holding forward moves the player off the top to the ground", () -> game().player().position.y < 2.0f, 4.0);
+        act(() -> key(GLFW_KEY_W, false));
+        verify("walked well past the tower face", () -> game().player().position.z < -9f, "pos " + game().player().position);
+        // Same, but sprinting from the top.
+        act(() -> key(GLFW_KEY_W, true));
+        act(() -> key(GLFW_KEY_LEFT_SHIFT, true));
+        sec(1.0);
+        act(() -> key(GLFW_KEY_W, false));
+        act(() -> key(GLFW_KEY_LEFT_SHIFT, false));
     }
 
     private void menuFlowToLoadout(Game g, String mode) {

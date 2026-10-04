@@ -150,9 +150,17 @@ public final class Player {
 
         float currentFeetY = position.y - World.EYE_HEIGHT;
         if (world.collidesAt(position.x, currentFeetY, position.z)) {
-            position.set(lastSafeX, lastSafeY, lastSafeZ);
-            verticalVelocity = 0f;
-            grounded = false; // let ground detection sort out standing vs falling next frame
+            // Usually this is just the body having dropped past the side of the block it walked off:
+            // slide out to the nearest clear spot rather than snapping back onto the top.
+            float[] out = world.pushOutOfSolids(position.x, currentFeetY, position.z);
+            if (out != null && !world.collidesAt(out[0], currentFeetY, out[1])) {
+                position.x = out[0];
+                position.z = out[1];
+            } else {
+                position.set(lastSafeX, lastSafeY, lastSafeZ);
+                verticalVelocity = 0f;
+                grounded = false; // let ground detection sort out standing vs falling next frame
+            }
         } else {
             lastSafeX = position.x;
             lastSafeY = position.y;
