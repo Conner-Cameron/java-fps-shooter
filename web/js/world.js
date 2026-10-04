@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { scene } from "./core.js";
-import { tiledClone, metalTexture, rockTexture, barkTexture, foliageTexture, makeGroundTexture } from "./textures.js";
+import { foliageTexture, tiledClone } from "./textures.js";
+import { pbrMaterial } from "./pbr.js";
 
 
 // ================================================================
@@ -67,6 +68,20 @@ export function addBox(position, size, color, texture, tileSize) {
   return mesh;
 }
 
+// A map box dressed with a photo PBR set: towers read as brushed concrete, the multi-floor building as
+// plaster (its `tile` field sets the panel size), and walls/cover/floors as concrete.
+function addPbrBox(b) {
+  const [sx, sy, sz] = b.s;
+  const color = parseInt(b.color.slice(1), 16);
+  const set = b.climb ? "brushed" : b.tile ? "plaster" : "concrete";
+  const t = Math.max(b.tile || 2.5, 0.01);
+  const mat = pbrMaterial(set, color, Math.max(sx / t, 0.5), Math.max(sy / t, 0.5));
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+  mesh.position.set(b.c[0], b.c[1], b.c[2]);
+  scene.add(mesh);
+  return mesh;
+}
+
 // ================================================================
 
 // ---- Sky dome: vertical gradient instead of a single flat color ----
@@ -108,7 +123,8 @@ addSkyDome();
 
 function addGround(box) {
   const geo = new THREE.BoxGeometry(...box.s);
-  const mat = new THREE.MeshLambertMaterial({ map: makeGroundTexture() });
+  // One grass tile every ~6 world units, so the ground doesn't read as a single smeared photo.
+  const mat = pbrMaterial("grass", 0xdcefb4, box.s[0] / 6, box.s[2] / 6);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(...box.c);
   scene.add(mesh);
@@ -127,10 +143,7 @@ function addMountains() {
     const h = 20 + ((i * 53) % 20);
     const r = 10 + ((i * 29) % 8);
     const sides = 5 + (i % 3);
-    const mat = new THREE.MeshLambertMaterial({
-      color: 0x5b6a86,
-      map: tiledClone(rockTexture, r / 3, h / 3)
-    });
+    const mat = pbrMaterial("rock", 0x8a94aa, r / 3, h / 3);
     const mesh = new THREE.Mesh(new THREE.ConeGeometry(r, h, sides), mat);
     mesh.position.set(x, h / 2 - 2, z);
     mesh.rotation.y = i * 0.7;
@@ -144,7 +157,7 @@ function addTree(x, z) {
   const group = new THREE.Group();
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(0.15, 0.22, 1.6, 6),
-    new THREE.MeshLambertMaterial({ color: 0xffffff, map: tiledClone(barkTexture, 1, 1) })
+    pbrMaterial("bark", 0xffffff, 1, 2)
   );
   trunk.position.y = 0.8;
   group.add(trunk);
@@ -164,7 +177,7 @@ function addTree(x, z) {
 function addRock(x, z, scale) {
   const rock = new THREE.Mesh(
     new THREE.DodecahedronGeometry(0.6 * scale, 0),
-    new THREE.MeshLambertMaterial({ color: 0x8a8a86, map: tiledClone(rockTexture, 1, 1) })
+    pbrMaterial("rock", 0x8a8a86, 1, 1)
   );
   rock.position.set(x, 0.3 * scale, z);
   rock.rotation.set(scale * 1.3, scale * 2.1, 0);
@@ -210,10 +223,7 @@ function addRamp(start, end, width, thickness) {
   const endV = new THREE.Vector3(...end);
   const length = Math.max(startV.distanceTo(endV), 0.01);
   const mid = new THREE.Vector3().addVectors(startV, endV).multiplyScalar(0.5);
-  const mat = new THREE.MeshLambertMaterial({
-    color: 0x9a968c,
-    map: tiledClone(metalTexture, Math.max(width / 2, 0.5), Math.max(length / 2, 0.5))
-  });
+  const mat = pbrMaterial("concrete", 0xb4b1a8, Math.max(width / 2, 0.5), Math.max(length / 2, 0.5));
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, thickness, length), mat);
   mesh.position.copy(mid);
   mesh.lookAt(startV);
@@ -248,7 +258,7 @@ export function buildWorld(MAP) {
       scene.add(glass);
       registerSolid(glass, b.bullets !== false);
     } else {
-      registerSolid(addBox(b.c, b.s, parseInt(b.color.slice(1), 16), metalTexture, b.tile), b.bullets !== false);
+      registerSolid(addPbrBox(b), b.bullets !== false);
     }
     if (b.climb) {
       climbables.push({

@@ -108,12 +108,15 @@ public final class World {
             solids.add(new Solid(b.center, b.size, b.blocksBullets));
             Matrix4f m = new Matrix4f().translate(b.center[0], b.center[1], b.center[2]).scale(b.size[0], b.size[1], b.size[2]);
             if (b.ground) {
-                opaque.add(new Prop(cube, m, tex.ground, new float[]{1, 1, 1}, 20f, 20f, 1f));
+                // One grass tile every ~6 units, matching the web client.
+                opaque.add(new Prop(cube, m, tex.grassPhoto, new float[]{0.863f, 0.937f, 0.706f}, b.size[0] / 6f, b.size[2] / 6f, 1f));
             } else if (b.glass) {
                 translucent.add(new Prop(cube, m, tex.white, new float[]{0.56f, 0.82f, 0.90f}, 1f, 1f, 0.28f));
             } else {
+                // Same surface choice as the web client: towers brushed concrete, the building plaster, the rest concrete.
+                Texture surface = b.climbMs > 0 ? tex.brushedPhoto : b.building ? tex.plasterPhoto : tex.concretePhoto;
                 float t = Math.max(b.tile, 0.01f);
-                opaque.add(new Prop(cube, m, tex.metal, b.color, Math.max(b.size[0] / t, 0.5f), Math.max(b.size[1] / t, 0.5f), 1f));
+                opaque.add(new Prop(cube, m, surface, b.color, Math.max(b.size[0] / t, 0.5f), Math.max(b.size[1] / t, 0.5f), 1f));
             }
             if (b.climbMs > 0) climbables.add(new Climbable(b.center, b.size, b.climbMs));
         }
@@ -121,20 +124,20 @@ public final class World {
         for (MapData.Ramp r : map.ramps) {
             Ramp ramp = new Ramp(r.a, r.b, r.width, r.thickness);
             ramps.add(ramp);
-            opaque.add(new Prop(cube, ramp.model, tex.metal, new float[]{0.604f, 0.588f, 0.549f},
+            opaque.add(new Prop(cube, ramp.model, tex.concretePhoto, new float[]{0.706f, 0.694f, 0.659f},
                     Math.max(r.width / 2f, 0.5f), Math.max(ramp.length / 2f, 0.5f), 1f));
         }
 
         for (float[] t : map.trees) {
             float x = t[0], z = t[1];
-            opaque.add(new Prop(trunk, new Matrix4f().translate(x, 0.8f, z).scale(1f, 1.6f, 1f), tex.bark, new float[]{1, 1, 1}, 1f, 1f, 1f));
+            opaque.add(new Prop(trunk, new Matrix4f().translate(x, 0.8f, z).scale(1f, 1.6f, 1f), tex.barkPhoto, new float[]{1, 1, 1}, 1f, 2f, 1f));
             opaque.add(new Prop(leaves, new Matrix4f().translate(x, 2.4f, z).scale(2.2f, 2.4f, 2.2f), tex.foliage, new float[]{1, 1, 1}, 1f, 1f, 1f));
             bulletOnly.add(new Solid(new float[]{x, 1.8f, z}, new float[]{1.6f, 3.6f, 1.6f}, true));
         }
         for (float[] r : map.rocks) {
             float x = r[0], z = r[1], s = r[2];
             Matrix4f m = new Matrix4f().translate(x, 0.3f * s, z).rotateXYZ(s * 1.3f, s * 2.1f, 0f).scale(1.2f * s);
-            opaque.add(new Prop(rock, m, tex.rock, new float[]{0.541f, 0.541f, 0.525f}, 1f, 1f, 1f));
+            opaque.add(new Prop(rock, m, tex.rockPhoto, new float[]{0.541f, 0.541f, 0.525f}, 1f, 1f, 1f));
             bulletOnly.add(new Solid(new float[]{x, 0.3f * s, z}, new float[]{1.2f * s, 1.2f * s, 1.2f * s}, true));
         }
 
@@ -162,7 +165,7 @@ public final class World {
             Matrix4f m = new Matrix4f()
                     .translate((float) Math.cos(angle) * dist, h / 2f - 2f, (float) Math.sin(angle) * dist)
                     .rotateY(i * 0.7f).scale(r * 2f, h, r * 2f);
-            opaque.add(new Prop(cones[i % 3], m, tex.rock, new float[]{0.357f, 0.416f, 0.525f}, r / 3f, h / 3f, 1f));
+            opaque.add(new Prop(cones[i % 3], m, tex.rockPhoto, new float[]{0.541f, 0.572f, 0.666f}, r / 3f, h / 3f, 1f));
         }
     }
 

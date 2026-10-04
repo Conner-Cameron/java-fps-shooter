@@ -28,6 +28,11 @@ public final class GunModels {
     // Fallback tints for weapons with no photo skin (the knife), same as the web client's plain metal/accent.
     private static final float[] PLAIN_METAL = {0.42f, 0.435f, 0.47f};
     private static final float[] PLAIN_ACCENT = {0.09f, 0.094f, 0.10f};
+    // Rifle and SMG: code-built boxes in plain colors (no photo sheet for them).
+    private static final float[] RIFLE_METAL = {0.357f, 0.376f, 0.416f};
+    private static final float[] RIFLE_ACCENT = {0.114f, 0.122f, 0.137f};
+    private static final float[] SMG_METAL = {0.29f, 0.306f, 0.337f};
+    private static final float[] SMG_ACCENT = {0.078f, 0.082f, 0.09f};
 
     public static final float RECOIL_DURATION = 0.18f;
     private static final float FLASH_DURATION = 0.05f;
@@ -40,20 +45,25 @@ public final class GunModels {
             {0, -0.02f, 0.05f, 0.1f, 0.1f, 0.3f, 0}, {0, 0.01f, -0.18f, 0.04f, 0.04f, 0.18f, 0},
             {0, -0.16f, 0.14f, 0.08f, 0.2f, 0.09f, 1}, {0, -0.24f, 0.1f, 0.06f, 0.12f, 0.08f, 1}
         },
-        { // 1 rifle
-            {0, -0.02f, 0.1f, 0.12f, 0.12f, 0.55f, 0}, {0, 0.02f, -0.35f, 0.05f, 0.05f, 0.35f, 0},
-            {0, -0.14f, 0.2f, 0.08f, 0.18f, 0.1f, 1}, {0, -0.1f, 0.02f, 0.06f, 0.14f, 0.22f, 1},
-            {0, 0.02f, 0.42f, 0.09f, 0.1f, 0.22f, 0}
+        { // 1 rifle: AR-style lower/upper receiver, carry handle, handguard, barrel, grip, magazine, stock
+            {0, -0.03f, 0.05f, 0.075f, 0.11f, 0.36f, 1}, {0, 0.05f, -0.02f, 0.075f, 0.075f, 0.42f, 0},
+            {0, 0.1f, -0.02f, 0.03f, 0.035f, 0.2f, 0}, {0, 0.0f, -0.3f, 0.085f, 0.085f, 0.3f, 1},
+            {0, 0.02f, -0.5f, 0.03f, 0.03f, 0.22f, 0}, {0, 0.08f, -0.42f, 0.015f, 0.04f, 0.015f, 0},
+            {0, -0.13f, 0.2f, 0.06f, 0.17f, 0.07f, 1, -0.25f}, {0, -0.2f, -0.02f, 0.05f, 0.2f, 0.09f, 0, 0.12f},
+            {0, -0.03f, 0.42f, 0.06f, 0.1f, 0.28f, 1}, {0, -0.03f, 0.57f, 0.065f, 0.11f, 0.03f, 1},
+            {0, 0.02f, 0.36f, 0.07f, 0.04f, 0.2f, 0}
         },
         { // 2 sniper
             {0, -0.02f, 0.15f, 0.1f, 0.1f, 0.6f, 0}, {0, 0.01f, -0.5f, 0.04f, 0.04f, 0.55f, 0},
             {0, 0.09f, 0.05f, 0.06f, 0.06f, 0.3f, 1}, {0, -0.16f, 0.28f, 0.08f, 0.18f, 0.1f, 1},
             {0, 0.02f, 0.55f, 0.08f, 0.09f, 0.3f, 0}
         },
-        { // 3 SMG
-            {0, -0.02f, 0.08f, 0.11f, 0.11f, 0.42f, 0}, {0, 0.02f, -0.24f, 0.045f, 0.045f, 0.24f, 0},
-            {0, -0.14f, 0.18f, 0.08f, 0.18f, 0.1f, 1}, {0, -0.12f, 0.09f, 0.07f, 0.24f, 0.09f, 1},
-            {0, 0.02f, 0.32f, 0.07f, 0.08f, 0.16f, 0}
+        { // 3 SMG: MP5-style receiver, deep handguard, barrel shroud, long magazine, folding stock
+            {0, 0.0f, 0.02f, 0.09f, 0.12f, 0.36f, 0}, {0, -0.01f, -0.22f, 0.1f, 0.09f, 0.2f, 1},
+            {0, 0.01f, -0.4f, 0.035f, 0.035f, 0.2f, 0}, {0, 0.01f, -0.36f, 0.06f, 0.06f, 0.12f, 0},
+            {0, 0.09f, 0.1f, 0.02f, 0.03f, 0.04f, 0}, {0, -0.15f, 0.2f, 0.07f, 0.16f, 0.07f, 1, -0.2f},
+            {0, -0.22f, -0.04f, 0.06f, 0.22f, 0.08f, 1, 0.06f}, {0, 0.04f, 0.36f, 0.05f, 0.04f, 0.2f, 0},
+            {0, 0.0f, 0.36f, 0.05f, 0.1f, 0.03f, 1}
         },
         { // 4 knife: blade, crossguard, handle
             {0, 0, -0.15f, 0.02f, 0.03f, 0.32f, 0}, {0, 0, 0.03f, 0.07f, 0.025f, 0.02f, 1},
@@ -61,7 +71,7 @@ public final class GunModels {
         }
     };
     private static final float[][] MUZZLE = {
-        {0, 0.01f, -0.3f}, {0, 0.02f, -0.56f}, {0, 0.01f, -0.8f}, {0, 0.02f, -0.36f}, {0, 0, 0.3f}
+        {0, 0.01f, -0.3f}, {0, 0.02f, -0.66f}, {0, 0.01f, -0.8f}, {0, 0.01f, -0.55f}, {0, 0, 0.3f}
     };
 
     private final Texture[] metal = new Texture[PARTS.length];
@@ -98,13 +108,20 @@ public final class GunModels {
 
         // Crops of the reference sheets -- same regions as the web client's weapon skins.
         skin(0, pistolSheet, new int[]{550, 90, 300, 300}, new int[]{740, 350, 180, 180}, worlds);
-        skin(1, sniperSheet, new int[]{550, 450, 220, 220}, new int[]{300, 250, 220, 220}, worlds);
+        plainSkin(1, RIFLE_METAL, RIFLE_ACCENT, worlds);
         skin(2, sniperSheet, new int[]{640, 75, 220, 220}, new int[]{100, 400, 220, 220}, worlds);
-        skin(3, pistolSheet, new int[]{430, 180, 200, 200}, new int[]{780, 660, 260, 260}, worlds);
+        plainSkin(3, SMG_METAL, SMG_ACCENT, worlds);
         metal[4] = worlds.metal;
         accent[4] = worlds.metal;
         metalTint[4] = PLAIN_METAL;
         accentTint[4] = PLAIN_ACCENT;
+    }
+
+    private void plainSkin(int idx, float[] metalTone, float[] accentTone, WorldTextures worlds) {
+        metal[idx] = worlds.metal;
+        accent[idx] = worlds.metal;
+        metalTint[idx] = metalTone;
+        accentTint[idx] = accentTone;
     }
 
     private void skin(int idx, BufferedImage sheet, int[] metalCrop, int[] accentCrop, WorldTextures worlds) {
@@ -253,7 +270,7 @@ public final class GunModels {
             boolean acc = p[6] == 1f;
             (acc ? accent : metal)[weaponIdx].bind(0);
             float[] tint = acc ? accentTint[weaponIdx] : metalTint[weaponIdx];
-            draw(shader, cube, base, p[0], p[1], p[2], p[3], p[4], p[5], tint[0], tint[1], tint[2]);
+            draw(shader, cube, base, p[0], p[1], p[2], p[3], p[4], p[5], tint[0], tint[1], tint[2], p.length > 7 ? p[7] : 0f);
         }
         if (flash && weaponIdx != Weapons.KNIFE_INDEX) {
             flashTexture.bind(0);
@@ -290,7 +307,13 @@ public final class GunModels {
 
     private void draw(Shader shader, CubeMesh cube, Matrix4f base, float x, float y, float z,
                       float sx, float sy, float sz, float r, float g, float b) {
-        Matrix4f model = new Matrix4f(base).translate(x, y, z).scale(sx, sy, sz);
+        draw(shader, cube, base, x, y, z, sx, sy, sz, r, g, b, 0f);
+    }
+
+    /** As above, tilted about the X axis by rx radians (for angled grips and magazines). */
+    private void draw(Shader shader, CubeMesh cube, Matrix4f base, float x, float y, float z,
+                      float sx, float sy, float sz, float r, float g, float b, float rx) {
+        Matrix4f model = new Matrix4f(base).translate(x, y, z).rotateX(rx).scale(sx, sy, sz);
         shader.setMat4("model", model);
         shader.setMat3("normalMatrix", model.normal(normalScratch));
         shader.setVec3("color", r, g, b);

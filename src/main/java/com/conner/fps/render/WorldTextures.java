@@ -7,31 +7,53 @@ import java.awt.RenderingHints;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.util.Random;
+import javax.imageio.ImageIO;
 
 /**
- * The web game's procedural surface textures (metal panels, rock, bark,
- * foliage, hazard stripes, grass ground), painted with Java2D instead of a
- * canvas -- same recipes, so the two clients share one look.
+ * The web game's surface textures. Metal panels, foliage and hazard stripes are
+ * procedural (painted with Java2D, same recipes as the web client). The map's
+ * ground, walls, towers, building, rocks, mountains and trunks use the photo
+ * sets from web/assets/textures (Poly Haven, CC0) -- color maps only here, since
+ * the desktop shader has no normal or roughness input.
  */
 public final class WorldTextures {
     public final Texture metal;
-    public final Texture rock;
-    public final Texture bark;
     public final Texture foliage;
     public final Texture hazard;
-    public final Texture ground;
     public final Texture white;
+
+    public final Texture grassPhoto;
+    public final Texture concretePhoto;
+    public final Texture brushedPhoto;
+    public final Texture plasterPhoto;
+    public final Texture rockPhoto;
+    public final Texture barkPhoto;
 
     public WorldTextures() {
         Random rnd = new Random(42);
         metal = paint(256, rnd, WorldTextures::paintMetal);
-        rock = paint(256, rnd, WorldTextures::paintRock);
-        bark = paint(128, rnd, WorldTextures::paintBark);
         foliage = paint(128, rnd, WorldTextures::paintFoliage);
         hazard = paint(128, rnd, WorldTextures::paintHazard);
-        ground = paint(256, rnd, WorldTextures::paintGround);
         white = TextureGenerator.white();
+        grassPhoto = photo("sparse_grass");
+        concretePhoto = photo("concrete_panels");
+        brushedPhoto = photo("brushed_concrete_03");
+        plasterPhoto = photo("plastered_wall_02");
+        rockPhoto = photo("rock_face_03");
+        barkPhoto = photo("knotted_pine_bark");
+    }
+
+    private static Texture photo(String set) {
+        try (InputStream in = WorldTextures.class.getResourceAsStream("/assets/textures/" + set + "/color.jpg")) {
+            if (in == null) throw new IOException("missing texture " + set);
+            return Texture.fromImage(ImageIO.read(in), true, true);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private interface Painter {
@@ -77,34 +99,6 @@ public final class WorldTextures {
         }
     }
 
-    private static void paintRock(Graphics2D g, int size, Random r) {
-        g.setColor(new Color(0x9a9a92));
-        g.fillRect(0, 0, size, size);
-        for (int i = 0; i < 3500; i++) {
-            double a = r.nextDouble() * 0.18;
-            g.setColor(r.nextBoolean() ? rgba(35, 32, 28, a) : rgba(215, 210, 198, a));
-            double rad = 1 + r.nextDouble() * 3;
-            double x = r.nextDouble() * size, y = r.nextDouble() * size;
-            g.fill(new Ellipse2D.Double(x - rad, y - rad, rad * 2, rad * 2));
-        }
-        g.setColor(rgba(30, 28, 24, 0.35));
-        g.setStroke(new BasicStroke(1));
-        for (int i = 0; i < 24; i++) {
-            double x = r.nextDouble() * size, y = r.nextDouble() * size;
-            g.drawLine((int) x, (int) y, (int) (x + (r.nextDouble() - 0.5) * 50), (int) (y + (r.nextDouble() - 0.5) * 50));
-        }
-    }
-
-    private static void paintBark(Graphics2D g, int size, Random r) {
-        g.setColor(new Color(0x4a3020));
-        g.fillRect(0, 0, size, size);
-        for (int x = 0; x < size; x += 3) {
-            double shade = r.nextDouble() * 35;
-            g.setColor(rgba((int) (40 + shade), (int) (24 + shade * 0.6), (int) (12 + shade * 0.3), 0.35 + r.nextDouble() * 0.35));
-            g.fillRect(x, 0, 2, size);
-        }
-    }
-
     private static void paintFoliage(Graphics2D g, int size, Random r) {
         g.setColor(new Color(0x356b35));
         g.fillRect(0, 0, size, size);
@@ -128,33 +122,16 @@ public final class WorldTextures {
         g.setTransform(saved);
     }
 
-    private static void paintGround(Graphics2D g, int size, Random r) {
-        g.setColor(new Color(0x4d8c4d));
-        g.fillRect(0, 0, size, size);
-        for (int i = 0; i < 4000; i++) {
-            int gr = 90 + r.nextInt(60);
-            g.setColor(rgba(gr - 60, gr, gr - 60, 0.5));
-            g.fillRect((int) (r.nextDouble() * size), (int) (r.nextDouble() * size), 2, 2);
-        }
-        for (int i = 0; i < 40; i++) {
-            double rad = 6 + r.nextDouble() * 14;
-            double x = r.nextDouble() * size, y = r.nextDouble() * size;
-            AffineTransform saved = g.getTransform();
-            g.translate(x, y);
-            g.rotate(r.nextDouble() * Math.PI);
-            g.setColor(rgba(120, 100, 60, 0.25));
-            g.fill(new Ellipse2D.Double(-rad, -rad * 0.6, rad * 2, rad * 1.2));
-            g.setTransform(saved);
-        }
-    }
-
     public void cleanup() {
         metal.cleanup();
-        rock.cleanup();
-        bark.cleanup();
         foliage.cleanup();
         hazard.cleanup();
-        ground.cleanup();
         white.cleanup();
+        grassPhoto.cleanup();
+        concretePhoto.cleanup();
+        brushedPhoto.cleanup();
+        plasterPhoto.cleanup();
+        rockPhoto.cleanup();
+        barkPhoto.cleanup();
     }
 }

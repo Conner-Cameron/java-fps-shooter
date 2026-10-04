@@ -1,0 +1,15 @@
+Map surface textures (web/assets/textures/<set>/)
+
+Source: Poly Haven (https://polyhaven.com), 1K JPEG downloads.
+License: CC0 1.0 Universal (public domain dedication). https://polyhaven.com/license
+Attribution is not required; it is recorded here for reference.
+
+Sets:
+  brushed_concrete_03  - climbable towers
+  concrete_panels      - walls, cover, ramps, floors
+  plastered_wall_02    - multi-floor building
+  sparse_grass         - ground
+  rock_face_03         - rocks and distant mountains
+  knotted_pine_bark    - tree trunks
+
+Each set contains color.jpg (sRGB), normal.jpg (OpenGL convention, nor_gl) and rough.jpg (roughness).

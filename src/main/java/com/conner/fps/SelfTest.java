@@ -468,7 +468,8 @@ public final class SelfTest implements Game.ScriptHook {
         wait(3);
         verify("Leave Game drops the match and returns to mode select",
                 () -> gameState().equals("MENU") && game().pvp() == null && game().menus().screen() == Menus.Screen.MODE, null);
-        until("the other client sees us leave", () -> observerSawLeft(), 4.0);
+        // The hosted server (Render) takes ~10-13 s to notice a closed socket, so this wait has to outlast that.
+        until("the other client sees us leave", () -> observerSawLeft(), 20.0);
 
         // --- a refused join (unknown room code) returns to the PvP setup screen with the reason
         act(() -> game().startPvp("DeskBot", server, "code", "ZZZZ"));

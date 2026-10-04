@@ -20,6 +20,7 @@ public final class MapData {
         public final float[] size;
         public final float[] color; // tint (rgb 0..1); ground/glass ignore it
         public final float tile;
+        public final boolean building; // has an explicit "tile" -- the multi-floor building's panels (plaster, not concrete)
         public final boolean ground;
         public final boolean glass;
         public final boolean blocksBullets;
@@ -32,6 +33,7 @@ public final class MapData {
             int rgb = Integer.parseInt(hex.substring(1), 16);
             color = new float[]{((rgb >> 16) & 255) / 255f, ((rgb >> 8) & 255) / 255f, (rgb & 255) / 255f};
             tile = (float) Json.num(o.get("tile"), 2.5);
+            building = o.get("tile") != null;
             ground = "ground".equals(o.get("kind"));
             glass = Boolean.TRUE.equals(o.get("glass"));
             blocksBullets = !Boolean.FALSE.equals(o.get("bullets"));
