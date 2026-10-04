@@ -124,6 +124,87 @@ export const barkTexture = makeBarkTexture();
 export const foliageTexture = makeFoliageTexture();
 export const hazardTexture = makeHazardTexture();
 
+// SMG skin, after the concept art (Downloads/SMG.jpg): a charcoal body with angular chamfered
+// panels, a chevron-ended amber band with black ticks, amber rails and caret glyphs, a vent, and scuffs.
+// Mirrored in WorldTextures.paintSmgSkin on desktop; keep the two in step.
+function chamferPath(ctx, x, y, w, h, c) {
+  ctx.beginPath();
+  ctx.moveTo(x + c, y);
+  ctx.lineTo(x + w - c, y);
+  ctx.lineTo(x + w, y + c);
+  ctx.lineTo(x + w, y + h - c);
+  ctx.lineTo(x + w - c, y + h);
+  ctx.lineTo(x + c, y + h);
+  ctx.lineTo(x, y + h - c);
+  ctx.lineTo(x, y + c);
+  ctx.closePath();
+}
+
+function makeSmgSkinTexture() {
+  return makeCanvasTexture(256, (ctx, size) => {
+    // Lit from above: lighter charcoal at the top, near-black at the bottom.
+    const body = ctx.createLinearGradient(0, 0, 0, size);
+    body.addColorStop(0, "#3d4149");
+    body.addColorStop(1, "#1d1f24");
+    ctx.fillStyle = body;
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 1500; i++) {
+      ctx.fillStyle = Math.random() < 0.5 ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.05)";
+      ctx.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+    // Angular panels: a recessed face with a light outer edge and a dark inner bevel.
+    const panels = [[8, 8, 120, 70, 10], [136, 10, 112, 64, 12], [8, 92, 84, 58, 8],
+                    [104, 84, 144, 72, 12], [8, 164, 104, 80, 14], [124, 166, 124, 78, 10]];
+    for (const [x, y, w, h, c] of panels) {
+      chamferPath(ctx, x, y, w, h, c);
+      ctx.fillStyle = "#2a2d33";
+      ctx.fill();
+      ctx.strokeStyle = "#646b76";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      chamferPath(ctx, x + 3, y + 3, w - 6, h - 6, c - 2);
+      ctx.strokeStyle = "rgba(0,0,0,0.5)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    // Vent slits in the lower right.
+    ctx.fillStyle = "#0c0d0f";
+    for (let i = 0; i < 7; i++) ctx.fillRect(140, 180 + i * 9, 90, 3);
+    // Main amber band: chevron ends, with black ticks across it.
+    ctx.beginPath();
+    ctx.moveTo(18, 112);
+    ctx.lineTo(206, 112);
+    ctx.lineTo(228, 122);
+    ctx.lineTo(206, 132);
+    ctx.lineTo(18, 132);
+    ctx.closePath();
+    ctx.fillStyle = "#f0a21c";
+    ctx.fill();
+    ctx.fillStyle = "#1a1b1f";
+    for (let x = 34; x < 200; x += 22) ctx.fillRect(x, 116, 6, 12);
+    // Thin amber rails.
+    ctx.fillStyle = "#e6951a";
+    ctx.fillRect(150, 38, 90, 3);
+    ctx.fillRect(18, 200, 84, 3);
+    // Caret glyphs.
+    ctx.strokeStyle = "#f0a21c";
+    ctx.lineWidth = 3;
+    for (const x of [22, 38, 54]) {
+      ctx.beginPath();
+      ctx.moveTo(x, 184);
+      ctx.lineTo(x + 6, 176);
+      ctx.lineTo(x + 12, 184);
+      ctx.stroke();
+    }
+    // Scuffs catching the light.
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(160, 70); ctx.lineTo(210, 64); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(60, 150); ctx.lineTo(96, 146); ctx.stroke();
+  });
+}
+export const smgSkinTexture = makeSmgSkinTexture();
+
 // ---- Procedurally-painted ground texture (no image assets used) ----
 export function makeGroundTexture() {
   const size = 256;

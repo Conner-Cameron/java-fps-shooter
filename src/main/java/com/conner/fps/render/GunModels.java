@@ -31,8 +31,10 @@ public final class GunModels {
     // Rifle and SMG: code-built boxes in plain colors (no photo sheet for them).
     private static final float[] RIFLE_METAL = {0.357f, 0.376f, 0.416f};
     private static final float[] RIFLE_ACCENT = {0.114f, 0.122f, 0.137f};
-    private static final float[] SMG_METAL = {0.29f, 0.306f, 0.337f};
-    private static final float[] SMG_ACCENT = {0.078f, 0.082f, 0.09f};
+    // SMG: the concept-art skin (WorldTextures.smgSkin). SKIN_TINT is its own array, not WHITE, so cleanup()
+    // never frees the shared texture; the accent parts take the same skin darkened.
+    private static final float[] SKIN_TINT = {1f, 1f, 1f};
+    private static final float[] SMG_ACCENT_TINT = {0.55f, 0.55f, 0.55f};
 
     public static final float RECOIL_DURATION = 0.18f;
     private static final float FLASH_DURATION = 0.05f;
@@ -110,7 +112,10 @@ public final class GunModels {
         skin(0, pistolSheet, new int[]{550, 90, 300, 300}, new int[]{740, 350, 180, 180}, worlds);
         plainSkin(1, RIFLE_METAL, RIFLE_ACCENT, worlds);
         skin(2, sniperSheet, new int[]{640, 75, 220, 220}, new int[]{100, 400, 220, 220}, worlds);
-        plainSkin(3, SMG_METAL, SMG_ACCENT, worlds);
+        metal[3] = worlds.smgSkin;
+        accent[3] = worlds.smgSkin;
+        metalTint[3] = SKIN_TINT;
+        accentTint[3] = SMG_ACCENT_TINT;
         metal[4] = worlds.metal;
         accent[4] = worlds.metal;
         metalTint[4] = PLAIN_METAL;

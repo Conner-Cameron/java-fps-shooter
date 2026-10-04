@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { camera, renderer } from "./core.js";
 import { loadWeaponAssets, makeEnvironment, instantiateWeapon } from "./assets.js";
 import { WEAPONS } from "./weapons.js";
-import { makeCanvasTexture, tiledClone, metalTexture } from "./textures.js";
+import { makeCanvasTexture, tiledClone, metalTexture, smgSkinTexture } from "./textures.js";
 
 // The rifle is equipped until the loadout screen says otherwise (matches
 // the initial currentWeapon in game.js).
@@ -128,9 +128,10 @@ const rifleMats = {
   metalMat: new THREE.MeshLambertMaterial({ color: 0x5b606a }),
   accentMat: new THREE.MeshLambertMaterial({ color: 0x1d1f23 })
 };
+// SMG: the concept-art skin (charcoal panels, amber strips); the accent parts take the same skin darkened.
 const smgMats = {
-  metalMat: new THREE.MeshLambertMaterial({ color: 0x4a4e56 }),
-  accentMat: new THREE.MeshLambertMaterial({ color: 0x141517 })
+  metalMat: new THREE.MeshLambertMaterial({ color: 0xffffff, map: smgSkinTexture }),
+  accentMat: new THREE.MeshLambertMaterial({ color: 0x8c8c8c, map: smgSkinTexture })
 };
 
 // Knife has no reference photo -- createGunModel() falls back to its
