@@ -18,6 +18,7 @@ public final class Weapons {
         public final float adsSpeed;      // how fast the zoom transitions
         public final float adsMoveMult;   // movement speed multiplier while aiming
         public final boolean scope;       // full circular scope overlay instead of just a tighter FOV
+        public final boolean redDot;      // red-dot sight: a red dot at the center while aimed, the gun stays visible
         public final float hipSpread;     // shot cone half-angle (degrees) at 0% aimed
         public final float adsSpread;     // ... at 100% aimed
         public final boolean melee;
@@ -25,7 +26,7 @@ public final class Weapons {
         public final String description;  // loadout-card blurb
 
         Spec(String name, int damage, int cooldownMs, int magSize, int reloadMs, boolean automatic,
-             float adsFov, float adsSpeed, float adsMoveMult, boolean scope, float hipSpread, float adsSpread,
+             float adsFov, float adsSpeed, float adsMoveMult, boolean scope, boolean redDot, float hipSpread, float adsSpread,
              boolean melee, float meleeRange, String description) {
             this.name = name;
             this.damage = damage;
@@ -37,6 +38,7 @@ public final class Weapons {
             this.adsSpeed = adsSpeed;
             this.adsMoveMult = adsMoveMult;
             this.scope = scope;
+            this.redDot = redDot;
             this.hipSpread = hipSpread;
             this.adsSpread = adsSpread;
             this.melee = melee;
@@ -46,16 +48,17 @@ public final class Weapons {
     }
 
     public static final Spec[] ALL = {
-        new Spec("Pistol", 20, 150, 8, 1000, false, 55, 12, 0.8f, false, 1.2f, 0.1f, false, 0,
+        new Spec("Pistol", 20, 150, 8, 1000, false, 55, 12, 0.8f, false, false, 1.2f, 0.1f, false, 0,
                 "Quick, semi-automatic sidearm. Reliable at any range with tight hip-fire spread."),
-        new Spec("Rifle", 34, 300, 24, 1600, false, 45, 9, 0.7f, false, 3.0f, 0.1f, false, 0,
+        // Red-dot ADS: a moderate zoom between the plain ADS and the sniper's scope.
+        new Spec("Rifle", 34, 300, 24, 1600, false, 40, 9, 0.7f, false, true, 3.0f, 0.1f, false, 0,
                 "Balanced, semi-automatic all-rounder. Solid damage and a full mag for sustained mid-range fights."),
-        new Spec("Sniper", 100, 1000, 5, 2200, false, 15, 6, 0.35f, true, 6.0f, 0.05f, false, 0,
+        new Spec("Sniper", 100, 1000, 5, 2200, false, 15, 6, 0.35f, true, false, 6.0f, 0.05f, false, 0,
                 "One-shot kill through a real scope. Devastating at range, but slow to fire and reload."),
-        new Spec("SMG", 14, 100, 20, 1300, true, 58, 14, 0.85f, false, 1.8f, 0.15f, false, 0,
+        new Spec("SMG", 14, 100, 20, 1300, true, 58, 14, 0.85f, false, false, 1.8f, 0.15f, false, 0,
                 "Fully automatic. High fire rate for close-quarters pressure."),
         // Secondary melee weapon, available to every class: no ammo/ADS, short-range one-shot swing.
-        new Spec("Knife", 100, 600, 0, 0, false, 0, 10, 1f, false, 0, 0, true, 2.2f, "")
+        new Spec("Knife", 100, 600, 0, 0, false, 0, 10, 1f, false, false, 0, 0, true, 2.2f, "")
     };
 
     /**

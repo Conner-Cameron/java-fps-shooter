@@ -144,6 +144,23 @@
   }
   #adsCrosshair.show { opacity: 1; }
 
+  /* Red-dot sight (rifle): a glowing red dot with a dark rim, centered while aimed. */
+  #redDot {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 5px;
+    height: 5px;
+    margin: -2.5px 0 0 -2.5px;
+    border-radius: 50%;
+    background: #ff2a22;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.5), 0 0 8px 3px rgba(255,40,30,0.55);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  #redDot.show { opacity: 1; }
+
   #hitmarker {
     position: fixed;
     top: 50%;
@@ -439,6 +456,7 @@
   <div class="arm right"></div>
 </div>
 <div id="adsCrosshair"></div>
+<div id="redDot"></div>
 <div id="hitmarker"></div>
 <div id="scopeOverlay">
   <div id="scopeVignette">

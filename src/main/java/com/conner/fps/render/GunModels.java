@@ -29,17 +29,17 @@ public final class GunModels {
     private static final float[] PLAIN_METAL = {0.42f, 0.435f, 0.47f};
     private static final float[] PLAIN_ACCENT = {0.09f, 0.094f, 0.10f};
     // Rifle and SMG: code-built boxes in plain colors (no photo sheet for them).
-    private static final float[] RIFLE_METAL = {0.357f, 0.376f, 0.416f};
-    private static final float[] RIFLE_ACCENT = {0.114f, 0.122f, 0.137f};
     // SMG: the concept-art skin (WorldTextures.smgSkin). SKIN_TINT is its own array, not WHITE, so cleanup()
     // never frees the shared texture; the accent parts take the same skin darkened.
     private static final float[] SKIN_TINT = {1f, 1f, 1f};
     private static final float[] SMG_ACCENT_TINT = {0.55f, 0.55f, 0.55f};
+    // AR: the concept-art skin (WorldTextures.arSkin), same tint rules as the SMG.
+    private static final float[] AR_ACCENT_TINT = {0.55f, 0.55f, 0.55f};
 
     public static final float RECOIL_DURATION = 0.18f;
     private static final float FLASH_DURATION = 0.05f;
     private static final float[] BASE_POS = {0.32f, -0.32f, -0.6f};
-    private static final float[] ADS_POS = {0.02f, -0.16f, -0.45f};
+    private static final float[] ADS_POS = {0f, -0.16f, -0.45f}; // x = 0 centers the sight on the aim line
 
     // {x, y, z, sx, sy, sz, material} with material 0 = metal, 1 = accent; the last row of each is the muzzle-flash position.
     private static final float[][][] PARTS = {
@@ -47,13 +47,17 @@ public final class GunModels {
             {0, -0.02f, 0.05f, 0.1f, 0.1f, 0.3f, 0}, {0, 0.01f, -0.18f, 0.04f, 0.04f, 0.18f, 0},
             {0, -0.16f, 0.14f, 0.08f, 0.2f, 0.09f, 1}, {0, -0.24f, 0.1f, 0.06f, 0.12f, 0.08f, 1}
         },
-        { // 1 rifle: AR-style lower/upper receiver, carry handle, handguard, barrel, grip, magazine, stock
-            {0, -0.03f, 0.05f, 0.075f, 0.11f, 0.36f, 1}, {0, 0.05f, -0.02f, 0.075f, 0.075f, 0.42f, 0},
-            {0, 0.1f, -0.02f, 0.03f, 0.035f, 0.2f, 0}, {0, 0.0f, -0.3f, 0.085f, 0.085f, 0.3f, 1},
-            {0, 0.02f, -0.5f, 0.03f, 0.03f, 0.22f, 0}, {0, 0.08f, -0.42f, 0.015f, 0.04f, 0.015f, 0},
-            {0, -0.13f, 0.2f, 0.06f, 0.17f, 0.07f, 1, -0.25f}, {0, -0.2f, -0.02f, 0.05f, 0.2f, 0.09f, 0, 0.12f},
-            {0, -0.03f, 0.42f, 0.06f, 0.1f, 0.28f, 1}, {0, -0.03f, 0.57f, 0.065f, 0.11f, 0.03f, 1},
-            {0, 0.02f, 0.36f, 0.07f, 0.04f, 0.2f, 0}
+        { // 1 rifle: AR-style receivers, red-dot optic on a top rail, quad handguard, barrel with flash hider,
+            // pistol grip, magazine, and a buttstock with buffer tube. Muzzle is the flash hider at z=-1.2.
+            {0, -0.04f, -0.08f, 0.075f, 0.12f, 0.42f, 1}, {0, 0.05f, -0.2f, 0.075f, 0.08f, 0.5f, 0},
+            {0, 0.105f, -0.22f, 0.05f, 0.02f, 0.22f, 1},
+            {-0.035f, 0.16f, -0.25f, 0.012f, 0.08f, 0.12f, 0}, {0.035f, 0.16f, -0.25f, 0.012f, 0.08f, 0.12f, 0},
+            {0, 0.2f, -0.25f, 0.058f, 0.012f, 0.12f, 0}, {0, -0.01f, -0.62f, 0.095f, 0.095f, 0.4f, 1},
+            {0, 0.058f, -0.62f, 0.02f, 0.02f, 0.4f, 0}, {0, -0.01f, -0.985f, 0.03f, 0.03f, 0.33f, 0},
+            {0, 0.07f, -0.8f, 0.01f, 0.05f, 0.01f, 1}, {0, -0.01f, -1.17f, 0.045f, 0.045f, 0.06f, 1},
+            {0, -0.15f, 0.02f, 0.06f, 0.17f, 0.07f, 1, -0.25f}, {0, -0.22f, -0.22f, 0.065f, 0.22f, 0.1f, 1, 0.12f},
+            {0, -0.02f, 0.24f, 0.06f, 0.13f, 0.22f, 1}, {0, 0.0f, 0.36f, 0.04f, 0.05f, 0.36f, 0},
+            {0, -0.02f, 0.54f, 0.065f, 0.13f, 0.03f, 1}
         },
         { // 2 sniper
             {0, -0.02f, 0.15f, 0.1f, 0.1f, 0.6f, 0}, {0, 0.01f, -0.5f, 0.04f, 0.04f, 0.55f, 0},
@@ -73,7 +77,7 @@ public final class GunModels {
         }
     };
     private static final float[][] MUZZLE = {
-        {0, 0.01f, -0.3f}, {0, 0.02f, -0.66f}, {0, 0.01f, -0.8f}, {0, 0.01f, -0.55f}, {0, 0, 0.3f}
+        {0, 0.01f, -0.3f}, {0, -0.01f, -1.2f}, {0, 0.01f, -0.8f}, {0, 0.01f, -0.55f}, {0, 0, 0.3f}
     };
 
     private final Texture[] metal = new Texture[PARTS.length];
@@ -110,7 +114,10 @@ public final class GunModels {
 
         // Crops of the reference sheets -- same regions as the web client's weapon skins.
         skin(0, pistolSheet, new int[]{550, 90, 300, 300}, new int[]{740, 350, 180, 180}, worlds);
-        plainSkin(1, RIFLE_METAL, RIFLE_ACCENT, worlds);
+        metal[1] = worlds.arSkin;
+        accent[1] = worlds.arSkin;
+        metalTint[1] = SKIN_TINT;
+        accentTint[1] = AR_ACCENT_TINT;
         skin(2, sniperSheet, new int[]{640, 75, 220, 220}, new int[]{100, 400, 220, 220}, worlds);
         metal[3] = worlds.smgSkin;
         accent[3] = worlds.smgSkin;
@@ -250,7 +257,7 @@ public final class GunModels {
     /** {scale, dx, dy, dz} to center each box model in a preview frame. */
     private static final float[][] PREVIEW_FIT = {
         {1.5f, 0f, 0.10f, -0.03f},   // pistol
-        {0.95f, 0f, 0.02f, -0.10f},  // rifle
+        {0.7f, 0f, 0.02f, -0.12f},   // rifle (longer model than before, so a smaller frame fit)
         {0.55f, 0f, 0.0f, -0.05f},   // sniper
         {1.15f, 0f, 0.04f, -0.08f},  // SMG
         {1.0f, 0f, 0f, 0f}           // knife

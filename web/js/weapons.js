@@ -24,8 +24,9 @@
 export const WEAPONS = [
   { name: "Pistol", damage: 20, cooldown: 150, magSize: 8, reloadMs: 1000,
     adsFov: 55, adsSpeed: 12, adsMoveMult: 0.8, sprintMult: 1.65, hipSpread: 1.2, adsSpread: 0.1 },
-  { name: "Rifle", damage: 34, cooldown: 300, magSize: 24, reloadMs: 1600,
-    adsFov: 45, adsSpeed: 9, adsMoveMult: 0.7, sprintMult: 1.5, hipSpread: 3.0, adsSpread: 0.1 },
+  // Red-dot ADS: a moderate zoom between the plain ADS and the sniper scope, with a red dot in place of the crosshair.
+  { name: "Rifle", damage: 34, cooldown: 300, magSize: 24, reloadMs: 1600, redDot: true,
+    adsFov: 40, adsSpeed: 9, adsMoveMult: 0.7, sprintMult: 1.5, hipSpread: 3.0, adsSpread: 0.1 },
   { name: "Sniper", damage: 100, cooldown: 1000, magSize: 5, reloadMs: 2200,
     adsFov: 15, adsSpeed: 6, adsMoveMult: 0.35, sprintMult: 1.75, scope: true, hipSpread: 6.0, adsSpread: 0.05 },
   { name: "SMG", damage: 14, cooldown: 100, magSize: 20, reloadMs: 1300, automatic: true,

@@ -8,6 +8,7 @@ const $ = (id) => document.getElementById(id);
 const hitMarkerEl = $("hitmarker");
 const crosshairEl = $("crosshair");
 const adsCrosshairEl = $("adsCrosshair");
+const redDotEl = $("redDot");
 const scopeOverlayEl = $("scopeOverlay");
 const deathOverlayEl = $("deathOverlay");
 const matchBannerEl = $("matchBanner");
@@ -47,6 +48,10 @@ export function setAdsCrosshairVisible(visible) {
   adsCrosshairEl.classList.toggle("show", visible);
 }
 
+export function setRedDotVisible(visible) {
+  redDotEl.classList.toggle("show", visible);
+}
+
 export function setCrosshairHidden(hidden) {
   crosshairEl.classList.toggle("hidden", hidden);
 }
@@ -59,6 +64,7 @@ export function setCrosshairGap(pixels) {
 export function clearAimUi() {
   scopeOverlayEl.classList.remove("show");
   adsCrosshairEl.classList.remove("show");
+  redDotEl.classList.remove("show");
 }
 
 // ---- death / match banner ----

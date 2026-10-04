@@ -239,3 +239,68 @@ export function makeGroundTexture() {
   texture.repeat.set(20, 20);
   return texture;
 }
+
+// AR skin, after the concept art (Downloads/AR.jpg): blue-black armor built from faceted plates with
+// thin dark seams, slanted vent slots, and a few small red accents. Mirrored in WorldTextures.paintArSkin.
+const AR_PLATES = [
+  [[6, 20], [120, 8], [150, 40], [120, 70], [10, 78]],
+  [[140, 14], [248, 22], [246, 78], [168, 70], [140, 46]],
+  [[6, 96], [90, 100], [110, 140], [70, 176], [8, 160]],
+  [[120, 100], [246, 92], [236, 150], [150, 160], [118, 130]],
+  [[10, 190], [92, 182], [124, 214], [100, 250], [14, 246]],
+  [[140, 186], [240, 176], [248, 240], [160, 250], [130, 220]]
+];
+
+function makeArSkinTexture() {
+  return makeCanvasTexture(256, (ctx, size) => {
+    const body = ctx.createLinearGradient(0, 0, 0, size);
+    body.addColorStop(0, "#5f646e");
+    body.addColorStop(1, "#3f434b");
+    ctx.fillStyle = body;
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 1200; i++) {
+      ctx.fillStyle = Math.random() < 0.5 ? "rgba(0,0,0,0.14)" : "rgba(255,255,255,0.04)";
+      ctx.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+    // Faceted plates: a lit top edge, a dark seam all round.
+    for (const plate of AR_PLATES) {
+      ctx.beginPath();
+      plate.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.fillStyle = "#4f545d";
+      ctx.fill();
+      ctx.strokeStyle = "#1c1e22";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.strokeStyle = "#7d848f";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(plate[0][0], plate[0][1]);
+      ctx.lineTo(plate[1][0], plate[1][1]);
+      ctx.stroke();
+    }
+    // Slanted vent slots in the mid plate.
+    ctx.fillStyle = "#0b0c0e";
+    for (let i = 0; i < 6; i++) {
+      const x = 170 + i * 12;
+      ctx.beginPath();
+      ctx.moveTo(x, 104);
+      ctx.lineTo(x + 8, 104);
+      ctx.lineTo(x - 2, 116);
+      ctx.lineTo(x - 10, 116);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Small red accents.
+    ctx.fillStyle = "#b3262e";
+    ctx.fillRect(14, 206, 40, 4);
+    ctx.fillRect(150, 130, 26, 3);
+    ctx.fillRect(206, 232, 18, 3);
+    // Wear.
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(40, 40); ctx.lineTo(96, 34); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(180, 220); ctx.lineTo(226, 214); ctx.stroke();
+  });
+}
+export const arSkinTexture = makeArSkinTexture();

@@ -26,6 +26,7 @@ public final class WorldTextures {
     public final Texture metal;
     public final Texture hazard;
     public final Texture smgSkin;
+    public final Texture arSkin;
     public final Texture white;
     /** Untextured surfaces (portal pads, window glass): white color, flat normal, no occlusion. */
     public final Surface plain;
@@ -44,6 +45,7 @@ public final class WorldTextures {
         metal = paint(256, rnd, WorldTextures::paintMetal);
         hazard = paint(128, rnd, WorldTextures::paintHazard);
         smgSkin = paint(256, rnd, WorldTextures::paintSmgSkin);
+        arSkin = paint(256, rnd, WorldTextures::paintArSkin);
         white = TextureGenerator.white();
         plain = new Surface(white, flatNormal, white, white);
         grass = photoSet("sparse_grass", white);
@@ -182,6 +184,64 @@ public final class WorldTextures {
         p.lineTo(x + c, y + h);
         p.lineTo(x, y + h - c);
         p.lineTo(x, y + c);
+        p.closePath();
+        return p;
+    }
+
+    // AR skin, after the concept art (Downloads/AR.jpg): blue-black armor built from faceted plates with thin
+    // dark seams, slanted vent slots, and a few small red accents. Mirrors web/js/textures.js makeArSkinTexture.
+    private static final int[][][] AR_PLATES = {
+        {{6, 20}, {120, 8}, {150, 40}, {120, 70}, {10, 78}},
+        {{140, 14}, {248, 22}, {246, 78}, {168, 70}, {140, 46}},
+        {{6, 96}, {90, 100}, {110, 140}, {70, 176}, {8, 160}},
+        {{120, 100}, {246, 92}, {236, 150}, {150, 160}, {118, 130}},
+        {{10, 190}, {92, 182}, {124, 214}, {100, 250}, {14, 246}},
+        {{140, 186}, {240, 176}, {248, 240}, {160, 250}, {130, 220}}
+    };
+
+    private static void paintArSkin(Graphics2D g, int size, Random r) {
+        g.setPaint(new GradientPaint(0, 0, new Color(0x5f646e), 0, size, new Color(0x3f434b)));
+        g.fillRect(0, 0, size, size);
+        for (int i = 0; i < 1200; i++) {
+            g.setColor(r.nextBoolean() ? rgba(0, 0, 0, 0.14) : rgba(255, 255, 255, 0.04));
+            g.fillRect((int) (r.nextDouble() * size), (int) (r.nextDouble() * size), 1 + r.nextInt(2), 1 + r.nextInt(2));
+        }
+        for (int[][] plate : AR_PLATES) {
+            Path2D.Double shape = polygon(plate);
+            g.setColor(new Color(0x4f545d));
+            g.fill(shape);
+            g.setStroke(new BasicStroke(3));
+            g.setColor(new Color(0x1c1e22));
+            g.draw(shape);
+            g.setStroke(new BasicStroke(2));
+            g.setColor(new Color(0x7d848f));
+            g.drawLine(plate[0][0], plate[0][1], plate[1][0], plate[1][1]);
+        }
+        g.setStroke(new BasicStroke(1));
+        g.setColor(new Color(0x0b0c0e));
+        for (int i = 0; i < 6; i++) {
+            int x = 170 + i * 12;
+            Path2D.Double slot = new Path2D.Double();
+            slot.moveTo(x, 104);
+            slot.lineTo(x + 8, 104);
+            slot.lineTo(x - 2, 116);
+            slot.lineTo(x - 10, 116);
+            slot.closePath();
+            g.fill(slot);
+        }
+        g.setColor(new Color(0xb3262e));
+        g.fillRect(14, 206, 40, 4);
+        g.fillRect(150, 130, 26, 3);
+        g.fillRect(206, 232, 18, 3);
+        g.setColor(rgba(255, 255, 255, 0.12));
+        g.drawLine(40, 40, 96, 34);
+        g.drawLine(180, 220, 226, 214);
+    }
+
+    private static Path2D.Double polygon(int[][] pts) {
+        Path2D.Double p = new Path2D.Double();
+        p.moveTo(pts[0][0], pts[0][1]);
+        for (int i = 1; i < pts.length; i++) p.lineTo(pts[i][0], pts[i][1]);
         p.closePath();
         return p;
     }

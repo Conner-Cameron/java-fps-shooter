@@ -24,7 +24,7 @@ public final class Hud {
         public String roomCode = "";           // PvP room, shown next to the counters
         public List<String[]> scoreboard = List.of();
         public float hipSpreadPixels;          // half-gap of the hip-fire crosshair
-        public boolean aiming, adsDot, scoped;
+        public boolean aiming, adsDot, redDot, scoped;
         public float hitMarkerAge = 99f;       // seconds since the last hit (marker shows for HIT_MARKER_TIME)
         public boolean dead;
         public String banner;                  // match banner text, or null
@@ -95,7 +95,11 @@ public final class Hud {
     /** Four arms whose gap follows the current hip-fire spread; a small dot when aiming down sights. */
     private void drawCrosshair(Ui ui, Data d, float cx, float cy) {
         if (d.aiming) {
-            if (d.adsDot) {
+            if (d.redDot) { // red-dot sight: a glowing red dot with a dark rim, so it reads on bright ground and sky
+                ui.circle(cx, cy, 7f, 1, 0.1f, 0.1f, 0.18f);
+                ui.circle(cx, cy, 4f, 0, 0, 0, 0.5f);
+                ui.circle(cx, cy, 2.6f, 1, 0.12f, 0.1f, 1f);
+            } else if (d.adsDot) {
                 ui.circle(cx, cy, 4.5f, 0, 0, 0, 0.5f);
                 ui.circle(cx, cy, 3f, 1, 1, 1, 1);
             }

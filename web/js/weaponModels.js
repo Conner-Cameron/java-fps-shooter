@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { camera, renderer } from "./core.js";
 import { loadWeaponAssets, makeEnvironment, instantiateWeapon } from "./assets.js";
 import { WEAPONS } from "./weapons.js";
-import { makeCanvasTexture, tiledClone, metalTexture, smgSkinTexture } from "./textures.js";
+import { makeCanvasTexture, tiledClone, metalTexture, smgSkinTexture, arSkinTexture } from "./textures.js";
 
 // The rifle is equipped until the loadout screen says otherwise (matches
 // the initial currentWeapon in game.js).
@@ -64,20 +64,27 @@ function createGunModel(type, customMats) {
     part(accentMat, 0, -0.01, 0.13, 0.035, 0.035, 0.17);
     flashPos = [0, 0, 0.3];
   } else {
-    // Rifle (AR-style, default): lower and upper receiver, carry handle with rear sight, handguard,
-    // thin barrel with front sight, angled pistol grip and magazine, and a buttstock.
-    part(accentMat, 0, -0.03, 0.05, 0.075, 0.11, 0.36);
-    part(metalMat, 0, 0.05, -0.02, 0.075, 0.075, 0.42);
-    part(metalMat, 0, 0.1, -0.02, 0.03, 0.035, 0.2);
-    part(accentMat, 0, 0.0, -0.3, 0.085, 0.085, 0.3);
-    part(metalMat, 0, 0.02, -0.5, 0.03, 0.03, 0.22);
-    part(metalMat, 0, 0.08, -0.42, 0.015, 0.04, 0.015);
-    partR(accentMat, 0, -0.13, 0.2, 0.06, 0.17, 0.07, -0.25);
-    partR(metalMat, 0, -0.2, -0.02, 0.05, 0.2, 0.09, 0.12);
-    part(accentMat, 0, -0.03, 0.42, 0.06, 0.1, 0.28);
-    part(accentMat, 0, -0.03, 0.57, 0.065, 0.11, 0.03);
-    part(metalMat, 0, 0.02, 0.36, 0.07, 0.04, 0.2);
-    flashPos = [0, 0.02, -0.66];
+    // Rifle (AR-style, default): lower and upper receiver, a red-dot optic on a top rail, quad handguard with
+    // a gas tube, barrel with flash hider, angled pistol grip and magazine, and a buttstock with buffer tube.
+    // Kept in step with the desktop table in GunModels.PARTS.
+    part(accentMat, 0, -0.04, -0.08, 0.075, 0.12, 0.42);
+    part(metalMat, 0, 0.05, -0.2, 0.075, 0.08, 0.5);
+    part(accentMat, 0, 0.105, -0.22, 0.05, 0.02, 0.22);
+    // Red-dot housing: open down the middle so the sight line runs through it (the dot itself is on the HUD).
+    part(metalMat, -0.035, 0.16, -0.25, 0.012, 0.08, 0.12);
+    part(metalMat, 0.035, 0.16, -0.25, 0.012, 0.08, 0.12);
+    part(metalMat, 0, 0.2, -0.25, 0.058, 0.012, 0.12);
+    part(accentMat, 0, -0.01, -0.62, 0.095, 0.095, 0.4);
+    part(metalMat, 0, 0.058, -0.62, 0.02, 0.02, 0.4);
+    part(metalMat, 0, -0.01, -0.985, 0.03, 0.03, 0.33);
+    part(accentMat, 0, 0.07, -0.8, 0.01, 0.05, 0.01);
+    part(accentMat, 0, -0.01, -1.17, 0.045, 0.045, 0.06);
+    partR(accentMat, 0, -0.15, 0.02, 0.06, 0.17, 0.07, -0.25);
+    partR(accentMat, 0, -0.22, -0.22, 0.065, 0.22, 0.1, 0.12);
+    part(accentMat, 0, -0.02, 0.24, 0.06, 0.13, 0.22);
+    part(metalMat, 0, 0.0, 0.36, 0.04, 0.05, 0.36);
+    part(accentMat, 0, -0.02, 0.54, 0.065, 0.13, 0.03);
+    flashPos = [0, -0.01, -1.2];
   }
 
   const flash = part(flashMat, flashPos[0], flashPos[1], flashPos[2], 0.16, 0.16, 0.16);
@@ -87,7 +94,7 @@ function createGunModel(type, customMats) {
 }
 
 const GUN_BASE_POS = { x: 0.32, y: -0.32, z: -0.6 };
-const ADS_GUN_POS = { x: 0.02, y: -0.16, z: -0.45 }; // raised toward center when aiming
+const ADS_GUN_POS = { x: 0, y: -0.16, z: -0.45 }; // raised toward center when aiming (x = 0 centers the sight on the aim line)
 const GUN_RECOIL_DURATION = 0.18;
 const GUN_MUZZLE_FLASH_DURATION = 0.05;
 
@@ -124,9 +131,10 @@ const sniperMats = makeWeaponPhotoMats("assets/sniper_reference.png", [640, 75, 
 // Rifle and SMG are code-built models with plain materials (no photo sheet for them):
 // the rifle is black polymer with gunmetal parts, the SMG a darker gunmetal with a black
 // furniture set, so each reads differently from the photo-skinned sniper and pistol.
+// AR: the concept-art skin (blue-black faceted plates, red accents); accent parts take it darkened.
 const rifleMats = {
-  metalMat: new THREE.MeshLambertMaterial({ color: 0x5b606a }),
-  accentMat: new THREE.MeshLambertMaterial({ color: 0x1d1f23 })
+  metalMat: new THREE.MeshLambertMaterial({ color: 0xffffff, map: arSkinTexture }),
+  accentMat: new THREE.MeshLambertMaterial({ color: 0x8c8c8c, map: arSkinTexture })
 };
 // SMG: the concept-art skin (charcoal panels, amber strips); the accent parts take the same skin darkened.
 const smgMats = {

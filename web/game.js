@@ -35,7 +35,7 @@ import { initMenus, isScreenVisible, setOverlayVisible, showScreen, setPvpError 
 import { connect, disconnect, isConnected, sendMessage, startKeepAlive } from "./js/net.js";
 import { finishLoading } from "./js/assets.js";
 import {
-  showHitMarker, setScopeVisible, setAdsCrosshairVisible, setCrosshairHidden, setCrosshairGap, clearAimUi,
+  showHitMarker, setScopeVisible, setAdsCrosshairVisible, setRedDotVisible, setCrosshairHidden, setCrosshairGap, clearAimUi,
   setDeathOverlay, showBanner, hideBanner, setStatus, renderScoreboard, renderHealth, renderWeapon, renderAmmo,
   renderTrainingScore, setRoomCode
 } from "./js/hud.js";
@@ -972,8 +972,10 @@ function tick(now) {
   // Pistol/rifle/SMG get a tighter precision reticle once mostly raised
   // into their ADS pose; the sniper uses its scope overlay instead, so
   // it's deliberately excluded here.
-  const showAdsCrosshair = !!(aiming && !activeWeapon.scope && adsBlend > 0.4);
+  const showAdsCrosshair = !!(aiming && !activeWeapon.scope && !activeWeapon.redDot && adsBlend > 0.4);
   setAdsCrosshairVisible(showAdsCrosshair);
+  // The rifle's red-dot sight replaces the ADS crosshair with a red dot at the center.
+  setRedDotVisible(!!(aiming && activeWeapon.redDot && adsBlend > 0.4));
   setCrosshairHidden(aiming);
   // Visualizes the current weapon's hip-fire bloom -- wider gap = less
   // accurate. Only actually visible while not aiming (the crosshair

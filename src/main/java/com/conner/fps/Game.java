@@ -670,7 +670,8 @@ public class Game implements PvpSession.Hooks {
         d.reloading = weapons.reloading;
         d.hipSpreadPixels = (float) (Math.tan(Math.toRadians(spec.hipSpread)) / Math.tan(Math.toRadians(Player.BASE_FOV / 2.0)) * (h / 2.0));
         d.aiming = weapons.aiming || weapons.adsBlend > 0.4f;
-        d.adsDot = weapons.aiming && !spec.scope && weapons.adsBlend > 0.4f;
+        d.adsDot = weapons.aiming && !spec.scope && !spec.redDot && weapons.adsBlend > 0.4f;
+        d.redDot = weapons.aiming && spec.redDot && weapons.adsBlend > 0.4f;
         d.scoped = weapons.scopedIn();
         d.hitMarkerAge = hitMarkerAge;
         if (bannerText != null && now < bannerUntil) {
