@@ -20,6 +20,12 @@ function createGunModel(type, customMats) {
     group.add(mesh);
     return mesh;
   }
+  // Same as part(), tilted about the X axis (radians) -- for angled grips and magazines.
+  function partR(mat, x, y, z, sx, sy, sz, rx) {
+    const mesh = part(mat, x, y, z, sx, sy, sz);
+    mesh.rotation.x = rx;
+    return mesh;
+  }
 
   let flashPos;
   if (type === 0) {
@@ -38,14 +44,18 @@ function createGunModel(type, customMats) {
     part(metalMat, 0, 0.02, 0.55, 0.08, 0.09, 0.3);
     flashPos = [0, 0.01, -0.8];
   } else if (type === 3) {
-    // SMG -- compact body, short barrel, chunky high-capacity magazine,
-    // small folding-style stock (shorter overall than the rifle)
-    part(metalMat, 0, -0.02, 0.08, 0.11, 0.11, 0.42);
-    part(metalMat, 0, 0.02, -0.24, 0.045, 0.045, 0.24);
-    part(accentMat, 0, -0.14, 0.18, 0.08, 0.18, 0.1);
-    part(accentMat, 0, -0.12, 0.09, 0.07, 0.24, 0.09);
-    part(metalMat, 0, 0.02, 0.32, 0.07, 0.08, 0.16);
-    flashPos = [0, 0.02, -0.36];
+    // SMG (MP5-style): boxy receiver, deep handguard, short barrel shroud, a long straight
+    // magazine ahead of the grip, and a thin folding stock. Shorter overall than the rifle.
+    part(metalMat, 0, 0.0, 0.02, 0.09, 0.12, 0.36);
+    part(accentMat, 0, -0.01, -0.22, 0.1, 0.09, 0.2);
+    part(metalMat, 0, 0.01, -0.4, 0.035, 0.035, 0.2);
+    part(metalMat, 0, 0.01, -0.36, 0.06, 0.06, 0.12);
+    part(metalMat, 0, 0.09, 0.1, 0.02, 0.03, 0.04);
+    partR(accentMat, 0, -0.15, 0.2, 0.07, 0.16, 0.07, -0.2);
+    partR(accentMat, 0, -0.22, -0.04, 0.06, 0.22, 0.08, 0.06);
+    part(metalMat, 0, 0.04, 0.36, 0.05, 0.04, 0.2);
+    part(accentMat, 0, 0.0, 0.36, 0.05, 0.1, 0.03);
+    flashPos = [0, 0.01, -0.55];
   } else if (type === 4) {
     // Knife -- flat blade, small crossguard, grip handle. No muzzle flash
     // (the flash mesh below still exists but is simply never triggered).
@@ -54,13 +64,20 @@ function createGunModel(type, customMats) {
     part(accentMat, 0, -0.01, 0.13, 0.035, 0.035, 0.17);
     flashPos = [0, 0, 0.3];
   } else {
-    // Rifle (default) -- body/barrel/grip/magazine/stock
-    part(metalMat, 0, -0.02, 0.1, 0.12, 0.12, 0.55);
-    part(metalMat, 0, 0.02, -0.35, 0.05, 0.05, 0.35);
-    part(accentMat, 0, -0.14, 0.2, 0.08, 0.18, 0.1);
-    part(accentMat, 0, -0.1, 0.02, 0.06, 0.14, 0.22);
-    part(metalMat, 0, 0.02, 0.42, 0.09, 0.1, 0.22);
-    flashPos = [0, 0.02, -0.56];
+    // Rifle (AR-style, default): lower and upper receiver, carry handle with rear sight, handguard,
+    // thin barrel with front sight, angled pistol grip and magazine, and a buttstock.
+    part(accentMat, 0, -0.03, 0.05, 0.075, 0.11, 0.36);
+    part(metalMat, 0, 0.05, -0.02, 0.075, 0.075, 0.42);
+    part(metalMat, 0, 0.1, -0.02, 0.03, 0.035, 0.2);
+    part(accentMat, 0, 0.0, -0.3, 0.085, 0.085, 0.3);
+    part(metalMat, 0, 0.02, -0.5, 0.03, 0.03, 0.22);
+    part(metalMat, 0, 0.08, -0.42, 0.015, 0.04, 0.015);
+    partR(accentMat, 0, -0.13, 0.2, 0.06, 0.17, 0.07, -0.25);
+    partR(metalMat, 0, -0.2, -0.02, 0.05, 0.2, 0.09, 0.12);
+    part(accentMat, 0, -0.03, 0.42, 0.06, 0.1, 0.28);
+    part(accentMat, 0, -0.03, 0.57, 0.065, 0.11, 0.03);
+    part(metalMat, 0, 0.02, 0.36, 0.07, 0.04, 0.2);
+    flashPos = [0, 0.02, -0.66];
   }
 
   const flash = part(flashMat, flashPos[0], flashPos[1], flashPos[2], 0.16, 0.16, 0.16);
@@ -104,13 +121,17 @@ function makeWeaponPhotoMats(imagePath, metalCrop, accentCrop) {
 
 const pistolMats = makeWeaponPhotoMats("assets/pistol_reference.png", [550, 90, 300, 300], [740, 350, 180, 180]);
 const sniperMats = makeWeaponPhotoMats("assets/sniper_reference.png", [640, 75, 220, 220], [100, 400, 220, 220]);
-// Rifle and SMG have no reference photos of their own -- skinned from
-// different crops of the same two sheets (gunmetal + in-hand glove
-// leather from the pistol photo for the SMG, gunmetal + olive-drab
-// chassis from the sniper sheet for the rifle) so all four weapons
-// share one consistent, photo-real look.
-const smgMats = makeWeaponPhotoMats("assets/pistol_reference.png", [430, 180, 200, 200], [780, 660, 260, 260]);
-const rifleMats = makeWeaponPhotoMats("assets/sniper_reference.png", [550, 450, 220, 220], [300, 250, 220, 220]);
+// Rifle and SMG are code-built models with plain materials (no photo sheet for them):
+// the rifle is black polymer with gunmetal parts, the SMG a darker gunmetal with a black
+// furniture set, so each reads differently from the photo-skinned sniper and pistol.
+const rifleMats = {
+  metalMat: new THREE.MeshLambertMaterial({ color: 0x5b606a }),
+  accentMat: new THREE.MeshLambertMaterial({ color: 0x1d1f23 })
+};
+const smgMats = {
+  metalMat: new THREE.MeshLambertMaterial({ color: 0x4a4e56 }),
+  accentMat: new THREE.MeshLambertMaterial({ color: 0x141517 })
+};
 
 // Knife has no reference photo -- createGunModel() falls back to its
 // original plain procedural metal/accent materials when no customMats
@@ -170,10 +191,20 @@ const iconEnv = weaponAssets.size ? makeEnvironment(iconPreviewRenderer) : null;
 // thin cut-out or any model with a "good side" looks wrong edge-on.
 function buildIconModel(type, mats) {
   if (!weaponAssets.has(type)) {
-    const g = createGunModel(type, mats);
-    g.userData.baseYaw = THREE.MathUtils.degToRad(20);
-    g.userData.spin = true;
-    return g;
+    // Procedural models are built at their own size and origin, so center and scale them into
+    // the icon frame the same way the glTF path below does.
+    const inner = createGunModel(type, mats);
+    inner.userData.flash.visible = false;
+    const box = new THREE.Box3().setFromObject(inner);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    inner.position.set(-center.x, -center.y, -center.z);
+    const wrapper = new THREE.Group();
+    wrapper.add(inner);
+    wrapper.scale.setScalar(0.62 / Math.max(size.x, size.y, size.z));
+    wrapper.userData.baseYaw = THREE.MathUtils.degToRad(20);
+    wrapper.userData.spin = true;
+    return wrapper;
   }
   const inner = buildWeapon(type, mats, iconEnv);
   inner.userData.flash.visible = false;
