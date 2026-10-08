@@ -25,7 +25,7 @@ import { hazardTexture } from "./js/textures.js";
 import { playGunshot, playReloadSound, playMeleeSwing, playHitTick, resumeAudio } from "./js/audio.js";
 import { bulletBlockers, addBox, buildWorld, clearWorld, portalBeams } from "./js/world.js";
 import {
-  targets, randomArenaPosition, randomTargetHp, randomTargetMotion, randomTargetSize, createPracticeTargets,
+  targets, placeTarget, randomArenaPosition, randomTargetHp, randomTargetMotion, randomTargetSize, createPracticeTargets,
   clearPracticeTargets
 } from "./js/practice.js";
 import { createPlayerModel, EYE_OFFSET, lerpAngle } from "./js/playerModel.js";
@@ -618,12 +618,13 @@ function resolveTargetHit(hits, obstacleDist) {
     if (target.mesh.material.map) target.mesh.material.map.dispose();
     target.mesh.material.dispose();
 
-    const [x, y, z] = randomArenaPosition(1 + Math.random() * 3.5);
     const size = randomTargetSize();
+    const motion = randomTargetMotion();
+    const [x, y, z] = placeTarget(size, motion);
     target.mesh = addBox([x, y, z], [size, size, size], 0xffffff, hazardTexture, 1.2);
     target.size = size;
     target.home.set(x, y, z);
-    target.motion = randomTargetMotion();
+    target.motion = motion;
     target.age = 0;
     target.maxHp = randomTargetHp();
     target.hp = target.maxHp;

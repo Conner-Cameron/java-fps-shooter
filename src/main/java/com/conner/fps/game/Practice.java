@@ -1,6 +1,7 @@
 package com.conner.fps.game;
 
 import com.conner.fps.data.Weapons;
+import com.conner.fps.world.World;
 import com.conner.fps.engine.Shader;
 import com.conner.fps.render.CubeMesh;
 import com.conner.fps.render.Texture;
@@ -34,10 +35,13 @@ public final class Practice {
     }
 
     private final Random random = new Random();
+    private World scenery; // the map the blocks must keep clear of (set by spawnAll)
     private final List<Target> targets = new ArrayList<>();
     private final Matrix3f normalScratch = new Matrix3f();
 
-    public void spawnAll() {
+    /** Spawns the blocks; they are placed clear of the world's trees, rocks and buildings (kept for respawns). */
+    public void spawnAll(World world) {
+        scenery = world;
         targets.clear();
         for (int i = 0; i < COUNT; i++) targets.add(newTarget());
     }
@@ -57,8 +61,6 @@ public final class Practice {
     }
 
     private void reroll(Target t) {
-        float y = 1f + random.nextFloat() * 3.5f;
-        t.home.set((random.nextFloat() - 0.5f) * ARENA_X, y, ARENA_Z_NEAR - random.nextFloat() * ARENA_Z_FAR);
         t.size = SIZE_MIN + random.nextFloat() * (SIZE_MAX - SIZE_MIN);
         int lo = Weapons.minDamage(), hi = Weapons.maxDamage();
         t.maxHp = lo + random.nextInt(hi - lo + 1);
@@ -68,9 +70,27 @@ public final class Practice {
         t.vertSpeed = 0.4f + random.nextFloat() * 2.0f;
         t.vertRadius = 0.3f + random.nextFloat() * 0.9f;
         t.phase = random.nextFloat() * (float) (Math.PI * 2);
+        placeClear(t);
         t.age = 0f;
         t.flashUntil = 0f;
         move(t);
+    }
+
+    // A home where the block and its whole drift path (horizRadius, vertRadius, plus half its size) clear all scenery.
+    private void placeClear(Target t) {
+        float edge = t.size / 2f + 0.3f, mv = t.vertRadius + edge;
+        for (int attempt = 0; attempt < 200; attempt++) {
+            float y = 1f + random.nextFloat() * 3.5f;
+            float x = (random.nextFloat() - 0.5f) * ARENA_X;
+            float z = ARENA_Z_NEAR - random.nextFloat() * ARENA_Z_FAR;
+            if (scenery == null || scenery.clearOf(x, y, z, edge, mv, edge)) {
+                if (scenery != null) t.horizRadius = Math.max(0f, Math.min(t.horizRadius, scenery.sceneryGap(x, y, z, edge, mv)));
+                t.home.set(x, y, z);
+                return;
+            }
+        }
+        t.horizRadius = 0.3f;
+        t.home.set((random.nextFloat() - 0.5f) * ARENA_X, 1f + random.nextFloat() * 3.5f, ARENA_Z_NEAR - random.nextFloat() * ARENA_Z_FAR);
     }
 
     private void move(Target t) {

@@ -16,6 +16,7 @@ export const bulletBlockers = []; // meshes the shoot() raycast checks first -- 
 export const portals = []; // {x, y, z, r, to}, eye-height like spawn/respawn positions -- see collision.js's portalAt()
 export const climbables = []; // {minX, maxX, minZ, maxZ, topY, centerX, centerZ, durationMs} -- see collision.js's climbableAt()
 export const portalBeams = []; // the glowing columns, animated (a slow spin) each frame in game.js's tick()
+export const treeZones = []; // {x, z} of each tree: its leaf canopy is wider than its trunk, which the bullet boxes miss (see practice.js)
 // Everything the map builds lives under one group, so a different map can be swapped in (see clearWorld).
 export const worldRoot = new THREE.Group();
 scene.add(worldRoot);
@@ -67,7 +68,7 @@ export function addBox(position, size, color, texture, tileSize) {
   const mat = new THREE.MeshLambertMaterial(matOptions);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(position[0], position[1], position[2]);
-  worldRoot.add(mesh);
+  scene.add(mesh); // practice blocks live in the scene, not the map (clearWorld leaves them alone)
   return mesh;
 }
 
@@ -208,6 +209,7 @@ function addCanopy(group, seed) {
 }
 
 function addTree(x, z) {
+  treeZones.push({ x, z });
   const group = new THREE.Group();
   const trunk = new THREE.Mesh(
     copyUv1(new THREE.CylinderGeometry(0.15, 0.22, 1.6, 6)),
@@ -334,6 +336,7 @@ export function clearWorld() {
       if (o.geometry) o.geometry.dispose();
     });
   }
+  treeZones.length = 0;
   for (const list of [collidables, solidBoxes, bulletBlockers, portals, climbables, portalBeams, rampColliders]) {
     list.length = 0;
   }

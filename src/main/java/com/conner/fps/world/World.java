@@ -147,6 +147,7 @@ public final class World {
 
         for (float[] t : map.trees) {
             float x = t[0], z = t[1];
+            treeCenters.add(new float[]{x, z});
             opaque.add(new Prop(trunk, new Matrix4f().translate(x, 0.8f, z).scale(1f, 1.6f, 1f), tex.bark, WHITE, 1f, 2f, 1f));
             ShapeMesh crown = own(Shapes.leafCanopy(treeSeed(x, z), CANOPY_CARDS, 1f));
             opaque.add(new Prop(crown, new Matrix4f().translate(x, CANOPY_CENTER_Y, z), tex.leaf, LEAF_TINT, 1f, 1f, 1f, LEAF_CUTOUT));
@@ -213,6 +214,51 @@ public final class World {
         return m;
     }
 
+    /**
+     * True if the box centered at (x,y,z) with half-extents (hx,hy,hz) touches nothing solid, tree or rock.
+     * The ground is skipped: anything standing on it is level with its top.
+     */
+    public boolean clearOf(float x, float y, float z, float hx, float hy, float hz) {
+        for (Solid s : solids) if (s.max[1] > 0.05f && overlaps(s, x, y, z, hx, hy, hz)) return false;
+        for (Solid s : bulletOnly) if (overlaps(s, x, y, z, hx, hy, hz)) return false;
+        for (float[] tc : treeCenters) {
+            boolean inBand = y + hy > CANOPY_LOW && y - hy < CANOPY_HIGH;
+            if (inBand && Math.hypot(x - tc[0], z - tc[1]) < CANOPY_REACH + hx) return false;
+        }
+        return true;
+    }
+
+    // Canopy reach and height band of a tree (its leaf cards sit wider than its trunk box).
+    private static final float CANOPY_REACH = 2f, CANOPY_LOW = 0.6f, CANOPY_HIGH = 4.4f;
+    private final List<float[]> treeCenters = new ArrayList<>(); // {x, z} of each tree
+
+    /**
+     * Horizontal room left around (x, z) at this height before anything solid, tree canopy included, is within
+     * {@code edge}: the distance to the nearest scenery, less edge. Infinity if there is none.
+     */
+    public float sceneryGap(float x, float y, float z, float edge, float mv) {
+        float best = Float.POSITIVE_INFINITY;
+        for (List<Solid> list : List.of(solids, bulletOnly)) {
+            for (Solid s : list) {
+                if (s.max[1] <= 0.05f || y + mv < s.min[1] || y - mv > s.max[1]) continue; // skips the ground
+                float dx = Math.max(Math.max(s.min[0] - x, 0f), x - s.max[0]);
+                float dz = Math.max(Math.max(s.min[2] - z, 0f), z - s.max[2]);
+                best = Math.min(best, (float) Math.hypot(dx, dz));
+            }
+        }
+        for (float[] tc : treeCenters) {
+            if (y + mv < CANOPY_LOW || y - mv > CANOPY_HIGH) continue;
+            best = Math.min(best, (float) Math.hypot(x - tc[0], z - tc[1]) - CANOPY_REACH);
+        }
+        return best - edge;
+    }
+
+    private static boolean overlaps(Solid s, float x, float y, float z, float hx, float hy, float hz) {
+        return x + hx > s.min[0] && x - hx < s.max[0]
+                && y + hy > s.min[1] && y - hy < s.max[1]
+                && z + hz > s.min[2] && z - hz < s.max[2];
+    }
+
     // ------------------------------------------------------------------ rendering
 
     /** Draws opaque geometry, then the translucent window glass. The scene shader must already be set up. */
@@ -226,6 +272,7 @@ public final class World {
         glDepthMask(true);
         glDisable(GL_BLEND);
         shader.setFloat("alpha", 1f);
+        shader.setFloat("cutout", 0f); // leave the leaf cutout off for whatever is drawn next
     }
 
     private void draw(Shader shader, Prop p) {

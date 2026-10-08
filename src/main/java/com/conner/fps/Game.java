@@ -442,7 +442,7 @@ public class Game implements PvpSession.Hooks {
             case Menus.Action.START_TRAINING:
                 gameMode = "training";
                 useMap("arena");
-                practice.spawnAll();
+                practice.spawnAll(world);
                 score = 0;
                 window.setTitle("Java FPS Shooter | Score: 0");
                 beginPlaying();
@@ -626,6 +626,7 @@ public class Game implements PvpSession.Hooks {
 
     /** Practice blocks, remote players and hit particles. */
     private void renderDynamic() {
+        sceneShader.use(); // the world pass left the surface shader bound
         if ("training".equals(gameMode)) practice.render(sceneShader, cube, textures.hazard);
 
         if (pvp != null) {
